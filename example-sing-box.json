@@ -1,0 +1,208 @@
+{
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "dns_local",
+        "type": "udp",
+        "server": "223.5.5.5"
+      },
+      {
+        "tag": "dns_fakeip",
+        "type": "fakeip",
+        "inet4_range": "198.18.0.0/15"
+      }
+    ],
+    "rules": [
+      {
+        "rule_set": "geosite-category-ads-all",
+        "action": "predefined",
+        "rcode": "NOERROR"
+      },
+      {
+        "rule_set": "geosite-cn",
+        "server": "dns_local"
+      },
+      {
+        "rule_set": "geosite-geolocation-!cn",
+        "server": "dns_fakeip"
+      }
+    ],
+    "final": "dns_local",
+    "strategy": "ipv4_only",
+    "independent_cache": true
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "address": [
+        "172.19.0.1/30"
+      ],
+      "auto_route": true,
+      "strict_route": true,
+      "stack": "system"
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    },
+    {
+      "type": "block",
+      "tag": "block"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy",
+      "outbounds": [
+        "AUTO-Test",
+        "direct",
+        "🇭🇰 香港-01-IEPL",
+        "🇸🇬 新加坡-02-BGP",
+        "🇯🇵 日本-03-CN2"
+      ],
+      "default": "AUTO-Test"
+    },
+    {
+      "type": "urltest",
+      "tag": "AUTO-Test",
+      "url": "http://cp.cloudflare.com/generate_204",
+      "interval": "3m",
+      "tolerance": 50,
+      "outbounds": [
+        "🇭🇰 香港-01-IEPL",
+        "🇸🇬 新加坡-02-BGP",
+        "🇯🇵 日本-03-CN2"
+      ]
+    },
+    {
+      "type": "trojan",
+      "tag": "🇭🇰 香港-01-IEPL",
+      "server": "hk01.node.com",
+      "server_port": 443,
+      "password": "secret_password",
+      "tls": {
+        "enabled": true,
+        "server_name": "hk01.node.com"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "🇸🇬 新加坡-02-BGP",
+      "server": "sg02.node.com",
+      "server_port": 443,
+      "uuid": "11111111-2222-3333-4444-555555555555",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "sg02.node.com",
+        "reality": {
+          "enabled": true,
+          "public_key": "example_pbk_12345"
+        }
+      },
+      "packet_encoding": "xudp"
+    },
+    {
+      "type": "vmess",
+      "tag": "🇯🇵 日本-03-CN2",
+      "server": "jp03.node.com",
+      "server_port": 443,
+      "uuid": "22222222-3333-4444-5555-666666666666",
+      "alter_id": 0,
+      "security": "auto",
+      "tls": {
+        "enabled": true,
+        "server_name": "jp03.node.com"
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/ws",
+        "headers": {
+          "Host": "jp03.node.com"
+        }
+      }
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "default_domain_resolver": "dns_local",
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "port": 53,
+        "action": "hijack-dns"
+      },
+      {
+        "rule_set": "geosite-category-ads-all",
+        "outbound": "block"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "direct"
+      },
+      {
+        "rule_set": "geosite-cn",
+        "outbound": "direct"
+      },
+      {
+        "rule_set": "geoip-cn",
+        "outbound": "direct"
+      },
+      {
+        "rule_set": "geosite-geolocation-!cn",
+        "outbound": "AUTO-Test"
+      },
+      {
+        "outbound": "AUTO-Test"
+      }
+    ],
+    "rule_set": [
+      {
+        "tag": "geosite-cn",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs",
+        "download_detour": "direct",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "geosite-geolocation-!cn",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-geolocation-!cn.srs",
+        "download_detour": "proxy",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "geoip-cn",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs",
+        "download_detour": "direct",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "geosite-category-ads-all",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs",
+        "download_detour": "proxy",
+        "update_interval": "1d"
+      }
+    ],
+    "final": "AUTO-Test"
+  },
+  "experimental": {}
+}
