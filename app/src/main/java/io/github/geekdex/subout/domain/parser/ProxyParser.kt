@@ -1,7 +1,9 @@
 package io.github.geekdex.subout.domain.parser
 
 import com.google.gson.Gson
+import com.google.gson.JsonArray
 import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import io.github.geekdex.subout.domain.model.ProxyNode
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
@@ -10,6 +12,10 @@ import java.util.Base64
 object ProxyParser {
 
     private val gson = Gson()
+
+    private val NON_PROXY_TYPES = setOf(
+        "direct", "block", "dns", "selector", "urltest", "fallback", "drop"
+    )
 
     fun decodeBase64(input: String): String? {
         val cleaned = input.filter { !it.isWhitespace() && it != '\r' && it != '\n' }
@@ -42,16 +48,38 @@ object ProxyParser {
     }
 
     fun parseSubscription(content: String): Pair<List<ProxyNode>, List<String>> {
+        val trimmed = content.trim()
+        if (trimmed.isEmpty()) return Pair(emptyList(), emptyList())
+
+        // 1. Check if the content is JSON (e.g. sing-box JSON configuration or outbound array)
+        val candidateJson = when {
+            trimmed.startsWith("{") || trimmed.startsWith("[") -> trimmed
+            else -> {
+                val decoded = decodeBase64(trimmed)
+                if (decoded != null && (decoded.trim().startsWith("{") || decoded.trim().startsWith("["))) {
+                    decoded.trim()
+                } else null
+            }
+        }
+
+        if (candidateJson != null) {
+            val jsonResult = parseSingBoxJson(candidateJson)
+            if (jsonResult != null && (jsonResult.first.isNotEmpty() || jsonResult.second.isNotEmpty())) {
+                return deduplicateNodes(jsonResult.first, jsonResult.second)
+            }
+        }
+
+        // 2. Line-by-line URI parsing
         val rawNodes = mutableListOf<ProxyNode>()
         val skipped = mutableListOf<String>()
 
-        val processedContent = decodeBase64(content) ?: content
+        val processedContent = decodeBase64(trimmed) ?: trimmed
 
         for (line in processedContent.lines()) {
-            val trimmed = line.trim()
-            if (trimmed.isEmpty()) continue
+            val lineTrimmed = line.trim()
+            if (lineTrimmed.isEmpty()) continue
 
-            val node = parseLine(trimmed) ?: continue
+            val node = parseLine(lineTrimmed) ?: continue
             if (node.isAnnouncement()) {
                 skipped.add(node.tag)
             } else {
@@ -59,7 +87,10 @@ object ProxyParser {
             }
         }
 
-        // Deduplicate tags
+        return deduplicateNodes(rawNodes, skipped)
+    }
+
+    fun deduplicateNodes(rawNodes: List<ProxyNode>, skipped: List<String>): Pair<List<ProxyNode>, List<String>> {
         val tagCounts = mutableMapOf<String, Int>()
         val deduplicatedNodes = mutableListOf<ProxyNode>()
 
@@ -90,9 +121,103 @@ object ProxyParser {
         return Pair(deduplicatedNodes, skipped)
     }
 
+    fun parseSingBoxJson(jsonStr: String): Pair<List<ProxyNode>, List<String>>? {
+        return try {
+            val root = JsonParser.parseString(jsonStr)
+            val outboundsArray = when {
+                root.isJsonObject -> {
+                    val obj = root.asJsonObject
+                    when {
+                        obj.has("outbounds") && obj.get("outbounds").isJsonArray -> obj.getAsJsonArray("outbounds")
+                        obj.has("type") -> {
+                            val arr = JsonArray()
+                            arr.add(obj)
+                            arr
+                        }
+                        else -> return null
+                    }
+                }
+                root.isJsonArray -> root.asJsonArray
+                else -> return null
+            }
+
+            val rawNodes = mutableListOf<ProxyNode>()
+            val skipped = mutableListOf<String>()
+
+            for (elem in outboundsArray) {
+                if (!elem.isJsonObject) continue
+                val outbound = elem.asJsonObject
+                val type = outbound.get("type")?.asString?.lowercase() ?: continue
+
+                // Skip internal routing / selector / direct outbounds
+                if (type in NON_PROXY_TYPES) continue
+
+                val tag = outbound.get("tag")?.asString ?: ""
+                val server = outbound.get("server")?.asString ?: ""
+                val serverPort = outbound.get("server_port")?.let {
+                    if (it.isJsonPrimitive) {
+                        val p = it.asJsonPrimitive
+                        if (p.isNumber) p.asInt else p.asString.toIntOrNull() ?: 0
+                    } else 0
+                } ?: 0
+
+                val tlsObj = outbound.getAsJsonObject("tls")
+                val insecure = (tlsObj?.get("insecure")?.asBoolean ?: false) ||
+                        (outbound.get("insecure")?.asBoolean ?: false)
+
+                val finalTag = if (tag.isNotEmpty()) tag else if (server.isNotEmpty()) "$server:$serverPort" else "node"
+
+                val node = ProxyNode(
+                    tag = finalTag,
+                    protocol = type,
+                    server = server,
+                    serverPort = serverPort,
+                    rawJson = gson.toJson(outbound),
+                    insecure = insecure
+                )
+
+                if (node.isAnnouncement()) {
+                    skipped.add(node.tag)
+                } else {
+                    rawNodes.add(node)
+                }
+            }
+
+            Pair(rawNodes, skipped)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     fun parseLine(line: String): ProxyNode? {
         val trimmed = line.trim()
         if (trimmed.isEmpty()) return null
+
+        // 0. Sing-box outbound JSON line
+        if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+            try {
+                val root = JsonParser.parseString(trimmed)
+                if (root.isJsonObject) {
+                    val outbound = root.asJsonObject
+                    val type = outbound.get("type")?.asString?.lowercase()
+                    if (type != null && type !in NON_PROXY_TYPES) {
+                        val tag = outbound.get("tag")?.asString ?: ""
+                        val server = outbound.get("server")?.asString ?: ""
+                        val serverPort = outbound.get("server_port")?.let {
+                            if (it.isJsonPrimitive) {
+                                val p = it.asJsonPrimitive
+                                if (p.isNumber) p.asInt else p.asString.toIntOrNull() ?: 0
+                            } else 0
+                        } ?: 0
+                        val tlsObj = outbound.getAsJsonObject("tls")
+                        val insecure = (tlsObj?.get("insecure")?.asBoolean ?: false) ||
+                                (outbound.get("insecure")?.asBoolean ?: false)
+                        val finalTag = if (tag.isNotEmpty()) tag else if (server.isNotEmpty()) "$server:$serverPort" else "node"
+                        return ProxyNode(finalTag, type, server, serverPort, gson.toJson(outbound), insecure)
+                    }
+                }
+            } catch (_: Exception) {}
+        }
 
         // 1. VMess
         if (trimmed.startsWith("vmess://", ignoreCase = true)) {
@@ -100,7 +225,7 @@ object ProxyParser {
             return parseVmess(payload)
         }
 
-        // 2. HTTPS base64 special format: https://base64#tag
+        // 2. HTTPS base64 special format: https://base64#tag or https://base64
         if (trimmed.startsWith("https://", ignoreCase = true)) {
             val rest = trimmed.substring(8)
             val hashIdx = rest.indexOf('#')
@@ -109,9 +234,16 @@ object ProxyParser {
 
             if (!base64Part.contains('@') && !base64Part.contains(':')) {
                 val decoded = decodeBase64(base64Part)
-                if (decoded != null && decoded.contains('@')) {
-                    val mockUrl = "http://$decoded$fragment"
-                    return parseUrl(mockUrl, forceHttps = true)
+                if (decoded != null) {
+                    val cleanDecoded = decoded.trim()
+                    if (cleanDecoded.contains("://")) {
+                        val innerNode = parseLine(cleanDecoded)
+                        if (innerNode != null) return innerNode
+                    } else if (cleanDecoded.contains('@')) {
+                        val mockUrl = "http://$cleanDecoded$fragment"
+                        val parsed = parseUrl(mockUrl, forceHttps = true)
+                        if (parsed != null) return parsed
+                    }
                 }
             }
         }
@@ -385,7 +517,7 @@ object ProxyParser {
             "https" -> 443
             "http" -> 80
             "socks", "socks5" -> 1080
-            "trojan", "vless", "anytls", "hysteria", "hysteria2" -> 443
+            "trojan", "vless", "anytls", "hysteria", "hysteria2", "tuic" -> 443
             else -> 443
         }
         val port = uri.port ?: defaultPort
@@ -574,6 +706,61 @@ object ProxyParser {
                     add("tls", tlsObj)
                 }
                 return ProxyNode(tag, "hysteria2", host, port, gson.toJson(outbound))
+            }
+            "anytls" -> {
+                val pass = password ?: username ?: ""
+                val peer = params["peer"] ?: sni ?: host
+                val allowInsecure = params["allowInsecure"] == "1" || params["insecure"] == "1" || params["allowInsecure"] == "true"
+
+                val tlsObj = JsonObject().apply {
+                    addProperty("enabled", true)
+                    if (peer.isNotEmpty()) addProperty("server_name", peer)
+                    if (allowInsecure) addProperty("insecure", true)
+                }
+
+                val outbound = JsonObject().apply {
+                    addProperty("type", "trojan")
+                    addProperty("tag", tag)
+                    addProperty("server", host)
+                    addProperty("server_port", port)
+                    addProperty("password", pass)
+                    add("tls", tlsObj)
+                }
+                return ProxyNode(tag, "trojan", host, port, gson.toJson(outbound), allowInsecure)
+            }
+            "tuic" -> {
+                val uuid = username ?: ""
+                val pass = password ?: ""
+                val congestionControl = params["congestion_control"] ?: params["congestion"] ?: "bbr"
+                val alpn = params["alpn"] ?: "h3"
+                val allowInsecure = params["allow_insecure"] == "1" || params["insecure"] == "1" || params["allowInsecure"] == "true"
+                val udpRelayMode = params["udp_relay_mode"] ?: "native"
+
+                val tlsObj = JsonObject().apply {
+                    addProperty("enabled", true)
+                    if (!sni.isNullOrEmpty()) addProperty("server_name", sni)
+                    val alpnArr = JsonArray()
+                    for (a in alpn.split(',')) {
+                        if (a.isNotBlank()) alpnArr.add(a.trim())
+                    }
+                    if (alpnArr.size() > 0) {
+                        add("alpn", alpnArr)
+                    }
+                    if (allowInsecure) addProperty("insecure", true)
+                }
+
+                val outbound = JsonObject().apply {
+                    addProperty("type", "tuic")
+                    addProperty("tag", tag)
+                    addProperty("server", host)
+                    addProperty("server_port", port)
+                    if (uuid.isNotEmpty()) addProperty("uuid", uuid)
+                    if (pass.isNotEmpty()) addProperty("password", pass)
+                    addProperty("congestion_control", congestionControl)
+                    addProperty("udp_relay_mode", udpRelayMode)
+                    add("tls", tlsObj)
+                }
+                return ProxyNode(tag, "tuic", host, port, gson.toJson(outbound), allowInsecure)
             }
             else -> return null
         }

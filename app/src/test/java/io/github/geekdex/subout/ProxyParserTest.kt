@@ -124,4 +124,85 @@ class ProxyParserTest {
         assertEquals("香港-01-2", nodes[1].tag)
         assertEquals("新加坡-01", nodes[2].tag)
     }
+
+    @Test
+    fun testParseSingBoxJsonSubscription() {
+        val singBoxJson = """
+            {
+              "dns": {"servers": [{"tag": "remote", "address": "https://1.1.1.1/dns-query"}]},
+              "outbounds": [
+                {"type": "direct", "tag": "DIRECT"},
+                {"type": "selector", "tag": "节点选择", "outbounds": ["node-1", "node-2"]},
+                {"type": "hysteria2", "tag": "剩余流量：100 GB", "server": "hy2.test.com", "server_port": 8443, "password": "p1"},
+                {"type": "hysteria2", "tag": "新加坡01", "server": "sg01.test.com", "server_port": 8443, "password": "p1", "tls": {"enabled": true, "insecure": true}},
+                {"type": "vless", "tag": "香港01", "server": "hk01.test.com", "server_port": 443, "uuid": "u1", "tls": {"enabled": true}},
+                {"type": "tuic", "tag": "日本01", "server": "jp01.test.com", "server_port": 443, "uuid": "u2", "password": "p2", "congestion_control": "bbr"}
+              ]
+            }
+        """.trimIndent()
+
+        val (nodes, skipped) = ProxyParser.parseSubscription(singBoxJson)
+        assertEquals(1, skipped.size)
+        assertEquals("剩余流量：100 GB", skipped[0])
+        assertEquals(3, nodes.size)
+
+        assertEquals("新加坡01", nodes[0].tag)
+        assertEquals("hysteria2", nodes[0].protocol)
+        assertEquals("sg01.test.com", nodes[0].server)
+        assertEquals(8443, nodes[0].serverPort)
+        assertTrue(nodes[0].insecure)
+
+        assertEquals("香港01", nodes[1].tag)
+        assertEquals("vless", nodes[1].protocol)
+        assertEquals("hk01.test.com", nodes[1].server)
+
+        assertEquals("日本01", nodes[2].tag)
+        assertEquals("tuic", nodes[2].protocol)
+        assertEquals("jp01.test.com", nodes[2].server)
+    }
+
+    @Test
+    fun testParseTuicNode() {
+        val line = "tuic://uuid-1:pass-1@tuic.example.com:443?congestion_control=bbr&alpn=h3&sni=tuic.example.com&allow_insecure=1#TUIC-Node"
+        val node = ProxyParser.parseLine(line)
+        assertNotNull(node)
+        assertEquals("TUIC-Node", node!!.tag)
+        assertEquals("tuic", node.protocol)
+        assertEquals("tuic.example.com", node.server)
+        assertEquals(443, node.serverPort)
+        assertTrue(node.insecure)
+        assertTrue(node.rawJson.contains("\"congestion_control\":\"bbr\""))
+        assertTrue(node.rawJson.contains("\"uuid\":\"uuid-1\""))
+        assertTrue(node.rawJson.contains("\"password\":\"pass-1\""))
+    }
+
+    @Test
+    fun testParseAnyTlsNode() {
+        val line = "anytls://secret@anytls.example.com:443?peer=sni.example.com&allowInsecure=1#AnyTLS-Node"
+        val node = ProxyParser.parseLine(line)
+        assertNotNull(node)
+        assertEquals("AnyTLS-Node", node!!.tag)
+        assertEquals("trojan", node.protocol)
+        assertEquals("anytls.example.com", node.server)
+        assertEquals(443, node.serverPort)
+        assertTrue(node.insecure)
+        assertTrue(node.rawJson.contains("\"password\":\"secret\""))
+        assertTrue(node.rawJson.contains("\"server_name\":\"sni.example.com\""))
+    }
+
+    @Test
+    fun testParseHttpsBase64Line() {
+        // user:pass@server.com:443/#Node-Tag
+        val raw = "user:pass@server.com:443/#Node-Tag"
+        val b64 = Base64.getEncoder().encodeToString(raw.toByteArray())
+        val line = "https://$b64"
+        val node = ProxyParser.parseLine(line)
+        assertNotNull(node)
+        assertEquals("Node-Tag", node!!.tag)
+        assertEquals("http", node.protocol)
+        assertEquals("server.com", node.server)
+        assertEquals(443, node.serverPort)
+        assertTrue(node.rawJson.contains("\"username\":\"user\""))
+        assertTrue(node.rawJson.contains("\"password\":\"pass\""))
+    }
 }
