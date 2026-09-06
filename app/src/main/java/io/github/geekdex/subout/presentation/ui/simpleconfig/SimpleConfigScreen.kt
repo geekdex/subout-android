@@ -69,6 +69,7 @@ fun SimpleConfigScreen(
     }
 
     Scaffold(
+        contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = { Text("小白模式配置", fontWeight = FontWeight.Bold) },
@@ -83,12 +84,10 @@ fun SimpleConfigScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Spacer(modifier = Modifier.height(4.dp))
-
             // 1. DNS Section
             ConfigSectionCard(
                 title = "DNS 配置",

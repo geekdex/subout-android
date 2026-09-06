@@ -58,6 +58,7 @@ fun MainScreen() {
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
+        contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
         bottomBar = {
             NavigationBar {
                 items.forEach { screen ->
@@ -84,7 +85,9 @@ fun MainScreen() {
         NavHost(
             navController = navController,
             startDestination = Screen.Dashboard.route,
-            modifier = Modifier.padding(innerPadding)
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = innerPadding.calculateBottomPadding())
         ) {
             composable(Screen.Dashboard.route) {
                 val dashboardViewModel: DashboardViewModel = viewModel(factory = DashboardViewModel.Factory())
