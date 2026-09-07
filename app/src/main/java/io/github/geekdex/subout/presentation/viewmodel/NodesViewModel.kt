@@ -39,6 +39,8 @@ data class NodesUiState(
     val testingNodeIds: Set<Long> = emptySet(),
     val isTestingAll: Boolean = false,
     val totalTestingCount: Int = 0,
+    val isSelectionMode: Boolean = false,
+    val selectedNodeIds: Set<Long> = emptySet(),
     val message: String? = null
 )
 
@@ -52,6 +54,8 @@ class NodesViewModel(
     private val _testingNodeIds = MutableStateFlow<Set<Long>>(emptySet())
     private val _isTestingAll = MutableStateFlow(false)
     private val _totalTestingCount = MutableStateFlow(0)
+    private val _isSelectionMode = MutableStateFlow(false)
+    private val _selectedNodeIds = MutableStateFlow<Set<Long>>(emptySet())
     private val _message = MutableStateFlow<String?>(null)
 
     private var batchTestJob: Job? = null
@@ -66,6 +70,8 @@ class NodesViewModel(
         val testingIds: Set<Long>,
         val testingAll: Boolean,
         val totalCount: Int,
+        val isSelection: Boolean,
+        val selectedIds: Set<Long>,
         val msg: String?
     )
 
@@ -73,13 +79,17 @@ class NodesViewModel(
         FilterParams(query, protocol, sort)
     }
 
+    private val testingStatusFlow = combine(_testingNodeIds, _isTestingAll, _totalTestingCount) { ids, all, total ->
+        Triple(ids, all, total)
+    }
+
     private val statusFlow = combine(
-        _testingNodeIds,
-        _isTestingAll,
-        _totalTestingCount,
+        testingStatusFlow,
+        _isSelectionMode,
+        _selectedNodeIds,
         _message
-    ) { ids, all, total, msg ->
-        StatusParams(ids, all, total, msg)
+    ) { (ids, all, total), selection, selectedIds, msg ->
+        StatusParams(ids, all, total, selection, selectedIds, msg)
     }
 
     val uiState: StateFlow<NodesUiState> = combine(
@@ -120,6 +130,8 @@ class NodesViewModel(
             testingNodeIds = status.testingIds,
             isTestingAll = status.testingAll,
             totalTestingCount = status.totalCount,
+            isSelectionMode = status.isSelection,
+            selectedNodeIds = status.selectedIds,
             message = status.msg
         )
     }.stateIn(
@@ -230,10 +242,74 @@ class NodesViewModel(
         }
     }
 
+    fun enterSelectionMode(initialId: Long? = null) {
+        _isSelectionMode.value = true
+        if (initialId != null) {
+            _selectedNodeIds.value = setOf(initialId)
+        }
+    }
+
+    fun exitSelectionMode() {
+        _isSelectionMode.value = false
+        _selectedNodeIds.value = emptySet()
+    }
+
+    fun toggleNodeSelection(id: Long) {
+        _selectedNodeIds.update { current ->
+            if (current.contains(id)) current - id else current + id
+        }
+    }
+
+    fun selectAllFilteredNodes() {
+        val allIds = uiState.value.filteredNodes.map { it.id }.toSet()
+        _selectedNodeIds.value = allIds
+    }
+
+    fun clearSelection() {
+        _selectedNodeIds.value = emptySet()
+    }
+
+    fun deleteSelectedNodes() {
+        val ids = _selectedNodeIds.value.toList()
+        if (ids.isEmpty()) return
+
+        viewModelScope.launch {
+            val count = nodeRepository.deleteNodesByIds(ids)
+            exitSelectionMode()
+            _message.value = "已删除 $count 个节点"
+        }
+    }
+
+    fun setSelectedNodesEnabled(enabled: Boolean) {
+        val ids = _selectedNodeIds.value.toList()
+        if (ids.isEmpty()) return
+
+        viewModelScope.launch {
+            val count = nodeRepository.setNodesEnabled(ids, enabled)
+            val action = if (enabled) "启用" else "禁用"
+            _message.value = "已${action} $count 个节点"
+            exitSelectionMode()
+        }
+    }
+
+    fun deleteTimeoutNodes() {
+        viewModelScope.launch {
+            val count = nodeRepository.deleteTimeoutNodes()
+            _message.value = if (count > 0) "已删除 $count 个超时节点" else "暂无超时节点需要清理"
+        }
+    }
+
+    fun deleteDisabledNodes() {
+        viewModelScope.launch {
+            val count = nodeRepository.deleteDisabledNodes()
+            _message.value = if (count > 0) "已删除 $count 个已禁用节点" else "暂无已禁用节点需要清理"
+        }
+    }
+
     fun deleteNode(node: Node) {
         viewModelScope.launch {
             nodeRepository.deleteNode(node)
-            _message.value = "已删除节点"
+            _message.value = "已删除节点「${node.tag}」"
         }
     }
 

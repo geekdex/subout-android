@@ -52,4 +52,16 @@ interface NodeDao {
 
     @Query("UPDATE nodes SET latency = NULL, testTime = NULL")
     suspend fun clearAllLatencies()
+
+    @Query("DELETE FROM nodes WHERE latency = :timeoutLatency")
+    suspend fun deleteTimeoutNodes(timeoutLatency: Int = Node.LATENCY_TIMEOUT): Int
+
+    @Query("DELETE FROM nodes WHERE id IN (:ids)")
+    suspend fun deleteNodesByIds(ids: List<Long>): Int
+
+    @Query("DELETE FROM nodes WHERE enabled = 0")
+    suspend fun deleteDisabledNodes(): Int
+
+    @Query("UPDATE nodes SET enabled = :enabled WHERE id IN (:ids)")
+    suspend fun updateNodesEnabled(ids: List<Long>, enabled: Boolean): Int
 }

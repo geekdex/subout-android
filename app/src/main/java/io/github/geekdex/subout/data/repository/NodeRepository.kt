@@ -38,4 +38,20 @@ class NodeRepository(
     suspend fun deleteNode(node: Node) = withContext(Dispatchers.IO) {
         nodeDao.delete(node)
     }
+
+    suspend fun deleteTimeoutNodes(): Int = withContext(Dispatchers.IO) {
+        nodeDao.deleteTimeoutNodes()
+    }
+
+    suspend fun deleteNodesByIds(ids: List<Long>): Int = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) 0 else nodeDao.deleteNodesByIds(ids)
+    }
+
+    suspend fun deleteDisabledNodes(): Int = withContext(Dispatchers.IO) {
+        nodeDao.deleteDisabledNodes()
+    }
+
+    suspend fun setNodesEnabled(ids: List<Long>, enabled: Boolean): Int = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) 0 else nodeDao.updateNodesEnabled(ids, enabled)
+    }
 }

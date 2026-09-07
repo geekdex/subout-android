@@ -3,14 +3,17 @@ package io.github.geekdex.subout.presentation.ui.nodes
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,16 +26,24 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Deselect
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -86,6 +97,20 @@ fun NodesScreen(
 
     var inspectingNode by remember { mutableStateOf<Node?>(null) }
     var showSortMenu by remember { mutableStateOf(false) }
+    var showMoreMenu by remember { mutableStateOf(false) }
+    var showSelectionMoreMenu by remember { mutableStateOf(false) }
+
+    // 删除弹窗状态
+    var showDeleteTimeoutConfirm by remember { mutableStateOf(false) }
+    var showDeleteSelectedConfirm by remember { mutableStateOf(false) }
+    var nodeToDelete by remember { mutableStateOf<Node?>(null) }
+
+    val timeoutCount = remember(uiState.rawNodes) { uiState.rawNodes.count { it.isTimeout } }
+    val disabledCount = remember(uiState.rawNodes) { uiState.rawNodes.count { !it.enabled } }
+
+    BackHandler(enabled = uiState.isSelectionMode) {
+        viewModel.exitSelectionMode()
+    }
 
     LaunchedEffect(uiState.message) {
         uiState.message?.let {
@@ -97,50 +122,181 @@ fun NodesScreen(
     Scaffold(
         contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("节点列表", fontWeight = FontWeight.Bold)
+            if (uiState.isSelectionMode) {
+                TopAppBar(
+                    title = {
                         Text(
-                            if (uiState.isTestingAll && uiState.totalTestingCount > 0) {
-                                val finished = uiState.totalTestingCount - uiState.testingNodeIds.size
-                                "测速中 ($finished/${uiState.totalTestingCount})..."
-                            } else {
-                                "共 ${uiState.rawNodes.size} 个，已启用 ${uiState.rawNodes.count { it.enabled }} 个"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (uiState.isTestingAll) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            text = "已选 ${uiState.selectedNodeIds.size} 项",
+                            fontWeight = FontWeight.Bold
                         )
-                    }
-                },
-                actions = {
-                    if (uiState.isTestingAll) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(end = 4.dp)
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { viewModel.exitSelectionMode() }) {
+                            Icon(Icons.Default.Close, contentDescription = "退出多选")
+                        }
+                    },
+                    actions = {
+                        val isAllSelected = uiState.selectedNodeIds.size == uiState.filteredNodes.size && uiState.filteredNodes.isNotEmpty()
+                        IconButton(onClick = {
+                            if (isAllSelected) viewModel.clearSelection() else viewModel.selectAllFilteredNodes()
+                        }) {
+                            Icon(
+                                if (isAllSelected) Icons.Default.Deselect else Icons.Default.SelectAll,
+                                contentDescription = if (isAllSelected) "取消全选" else "全选"
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            TextButton(onClick = { viewModel.cancelBatchTesting() }) {
-                                Text("停止", style = MaterialTheme.typography.labelMedium)
+                        }
+                        IconButton(
+                            onClick = { showDeleteSelectedConfirm = true },
+                            enabled = uiState.selectedNodeIds.isNotEmpty()
+                        ) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "删除选中项",
+                                tint = if (uiState.selectedNodeIds.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline
+                            )
+                        }
+                        Box {
+                            IconButton(
+                                onClick = { showSelectionMoreMenu = true },
+                                enabled = uiState.selectedNodeIds.isNotEmpty()
+                            ) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "批量操作")
+                            }
+                            DropdownMenu(
+                                expanded = showSelectionMoreMenu,
+                                onDismissRequest = { showSelectionMoreMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("批量启用 (${uiState.selectedNodeIds.size})") },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Check, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        showSelectionMoreMenu = false
+                                        viewModel.setSelectedNodesEnabled(true)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("批量禁用 (${uiState.selectedNodeIds.size})") },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Close, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        showSelectionMoreMenu = false
+                                        viewModel.setSelectedNodesEnabled(false)
+                                    }
+                                )
                             }
                         }
-                    } else {
-                        IconButton(
-                            onClick = { viewModel.testAllVisibleNodes() },
-                            enabled = uiState.filteredNodes.isNotEmpty()
-                        ) {
-                            Icon(Icons.Default.Speed, contentDescription = "一键测速")
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
                 )
-            )
+            } else {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text("节点列表", fontWeight = FontWeight.Bold)
+                            Text(
+                                if (uiState.isTestingAll && uiState.totalTestingCount > 0) {
+                                    val finished = uiState.totalTestingCount - uiState.testingNodeIds.size
+                                    "测速中 ($finished/${uiState.totalTestingCount})..."
+                                } else {
+                                    val countDesc = "共 ${uiState.rawNodes.size} 个，已启用 ${uiState.rawNodes.count { it.enabled }} 个"
+                                    if (timeoutCount > 0) "$countDesc · 超时 $timeoutCount" else countDesc
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (uiState.isTestingAll) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    },
+                    actions = {
+                        if (uiState.isTestingAll) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(end = 4.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                TextButton(onClick = { viewModel.cancelBatchTesting() }) {
+                                    Text("停止", style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                        } else {
+                            IconButton(
+                                onClick = { viewModel.testAllVisibleNodes() },
+                                enabled = uiState.filteredNodes.isNotEmpty()
+                            ) {
+                                Icon(Icons.Default.Speed, contentDescription = "一键测速")
+                            }
+                        }
+
+                        Box {
+                            IconButton(onClick = { showMoreMenu = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "更多操作")
+                            }
+                            DropdownMenu(
+                                expanded = showMoreMenu,
+                                onDismissRequest = { showMoreMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            if (timeoutCount > 0) "清理超时节点 ($timeoutCount)" else "清理超时节点",
+                                            color = if (timeoutCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.DeleteSweep,
+                                            contentDescription = null,
+                                            tint = if (timeoutCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        if (timeoutCount > 0) {
+                                            showDeleteTimeoutConfirm = true
+                                        } else {
+                                            viewModel.deleteTimeoutNodes()
+                                        }
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("批量管理") },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Checklist, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        viewModel.enterSelectionMode()
+                                    },
+                                    enabled = uiState.filteredNodes.isNotEmpty()
+                                )
+                                if (disabledCount > 0) {
+                                    DropdownMenuItem(
+                                        text = { Text("清理已禁用节点 ($disabledCount)") },
+                                        leadingIcon = {
+                                            Icon(Icons.Default.Delete, contentDescription = null)
+                                        },
+                                        onClick = {
+                                            showMoreMenu = false
+                                            viewModel.deleteDisabledNodes()
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
+                )
+            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
@@ -244,43 +400,16 @@ fun NodesScreen(
                     }
                 }
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                TextButton(
+                    onClick = { viewModel.clearLatencies() },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                 ) {
-                    TextButton(
-                        onClick = { viewModel.setAllEnabled(true) },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            "全选",
-                            style = MaterialTheme.typography.labelMedium,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
-                    TextButton(
-                        onClick = { viewModel.setAllEnabled(false) },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            "全禁",
-                            style = MaterialTheme.typography.labelMedium,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
-                    TextButton(
-                        onClick = { viewModel.clearLatencies() },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            "清空测速",
-                            style = MaterialTheme.typography.labelMedium,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
+                    Text(
+                        "清空测速",
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        softWrap = false
+                    )
                 }
             }
 
@@ -318,9 +447,12 @@ fun NodesScreen(
                         NodeItem(
                             node = node,
                             isTesting = uiState.testingNodeIds.contains(node.id),
-                            onToggleEnabled = { viewModel.toggleNodeEnabled(node.id, it) },
+                            isSelectionMode = uiState.isSelectionMode,
+                            isSelected = uiState.selectedNodeIds.contains(node.id),
+                            onToggleSelection = { viewModel.toggleNodeSelection(node.id) },
                             onTestPing = { viewModel.testNode(node) },
-                            onClick = { inspectingNode = node }
+                            onClick = { inspectingNode = node },
+                            onLongClick = { viewModel.enterSelectionMode(node.id) }
                         )
                     }
 
@@ -353,6 +485,24 @@ fun NodesScreen(
                         text = "服务器: ${node.server}",
                         style = MaterialTheme.typography.labelMedium
                     )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (node.enabled) "节点状态：已启用" else "节点状态：已禁用",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (node.enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                        )
+                        androidx.compose.material3.Switch(
+                            checked = node.enabled,
+                            onCheckedChange = { isChecked ->
+                                viewModel.toggleNodeEnabled(node.id, isChecked)
+                                inspectingNode = node.copy(enabled = isChecked)
+                            }
+                        )
+                    }
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -388,29 +538,138 @@ fun NodesScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { inspectingNode = null }) {
-                    Text("关闭")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(
+                        onClick = { nodeToDelete = node }
+                    ) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("删除节点", color = MaterialTheme.colorScheme.error)
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    TextButton(onClick = { inspectingNode = null }) {
+                        Text("关闭")
+                    }
+                }
+            }
+        )
+    }
+
+    // 单节点删除确认对话框
+    nodeToDelete?.let { node ->
+        AlertDialog(
+            onDismissRequest = { nodeToDelete = null },
+            title = { Text("删除节点") },
+            text = { Text("确定要删除节点「${node.tag}」吗？删除后无法恢复。") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteNode(node)
+                        nodeToDelete = null
+                        if (inspectingNode?.id == node.id) {
+                            inspectingNode = null
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("删除", color = MaterialTheme.colorScheme.onError)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { nodeToDelete = null }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    // 清理超时节点确认对话框
+    if (showDeleteTimeoutConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteTimeoutConfirm = false },
+            title = { Text("清理超时节点") },
+            text = { Text("检测到当前有 $timeoutCount 个连接超时或不可达的节点，确定要全部删除吗？删除后无法恢复。") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteTimeoutNodes()
+                        showDeleteTimeoutConfirm = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("删除 ($timeoutCount)", color = MaterialTheme.colorScheme.onError)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteTimeoutConfirm = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    // 批量删除选中节点确认对话框
+    if (showDeleteSelectedConfirm) {
+        val count = uiState.selectedNodeIds.size
+        AlertDialog(
+            onDismissRequest = { showDeleteSelectedConfirm = false },
+            title = { Text("批量删除节点") },
+            text = { Text("确定要删除选中的 $count 个节点吗？删除后无法恢复。") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteSelectedNodes()
+                        showDeleteSelectedConfirm = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("删除 ($count)", color = MaterialTheme.colorScheme.onError)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteSelectedConfirm = false }) {
+                    Text("取消")
                 }
             }
         )
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NodeItem(
     node: Node,
     isTesting: Boolean,
-    onToggleEnabled: (Boolean) -> Unit,
+    isSelectionMode: Boolean,
+    isSelected: Boolean,
+    onToggleSelection: () -> Unit,
     onTestPing: () -> Unit,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
 ) {
+    val containerColor = when {
+        isSelectionMode && isSelected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+        node.enabled -> MaterialTheme.colorScheme.surfaceVariant
+        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() },
+            .combinedClickable(
+                onClick = {
+                    if (isSelectionMode) onToggleSelection() else onClick()
+                },
+                onLongClick = onLongClick
+            ),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (node.enabled) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            containerColor = containerColor
         )
     ) {
         Row(
@@ -419,22 +678,46 @@ fun NodeItem(
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Checkbox(
-                checked = node.enabled,
-                onCheckedChange = onToggleEnabled
-            )
-
-            Spacer(modifier = Modifier.width(6.dp))
+            if (isSelectionMode) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onToggleSelection() }
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+            }
 
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = node.tag,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = if (node.enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = node.tag,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = if (node.enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (!node.enabled) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f),
+                            modifier = Modifier.height(16.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier.padding(horizontal = 4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "已禁用",
+                                    color = MaterialTheme.colorScheme.outline,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(2.dp))
 
@@ -453,13 +736,15 @@ fun NodeItem(
 
             Spacer(modifier = Modifier.width(8.dp))
 
-            // Latency Pill & Ping Button
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                LatencyBadge(
-                    latency = node.latency,
-                    isTesting = isTesting,
-                    onClick = onTestPing
-                )
+            if (!isSelectionMode) {
+                // Latency Pill & Ping Button
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    LatencyBadge(
+                        latency = node.latency,
+                        isTesting = isTesting,
+                        onClick = onTestPing
+                    )
+                }
             }
         }
     }
