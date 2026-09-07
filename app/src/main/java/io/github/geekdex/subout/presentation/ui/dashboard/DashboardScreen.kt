@@ -178,7 +178,7 @@ fun DashboardScreen(
             ) {
                 QuickActionCard(
                     title = "配置导出",
-                    subtitle = "导出文件或启动服务",
+                    subtitle = "导出 sing-box 配置",
                     icon = Icons.Default.Download,
                     modifier = Modifier.weight(1f),
                     onClick = onNavigateToExport
@@ -237,9 +237,9 @@ fun DashboardScreen(
                     }
                     Text(
                         "1. 在【订阅】中添加您的机场订阅源并同步获取节点。\n" +
-                        "2. 在【配置】中选择 DNS 模式 (默认推荐 FakeIP) 和分流规则。\n" +
-                        "3. 在【导出】中选择启动临时服务 (URL 导入) 或直接分享配置文件到 SFA。\n" +
-                        "4. SFA 导入完成后，在 SFA 中启动代理连接即可！",
+                        "2. 在【配置】中按需调整模式（默认已推荐最佳配置）。\n" +
+                        "3. 在【导出】中点击导出配置文件至系统公共下载目录 (Download/subout)。\n" +
+                        "4. 打开 SFA 选择【本地导入】加载该文件，启动代理即可！",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = MaterialTheme.typography.bodySmall.lineHeight * 1.3f

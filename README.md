@@ -64,22 +64,20 @@ app/
 │   └── repository/                  # 数据仓库层 (Flow 响应式更新)
 ├── domain/
 │   ├── generator/
-│   │   ├── ConfigExporter.kt        # FileProvider 文件导出与 Intent 分享
+│   │   ├── ConfigExporter.kt        # 公共存储目录文件导出 (Download/subout)
 │   │   └── SimpleConfigGenerator.kt # sing-box 1.10+ 标准配置组装器
 │   ├── model/                       # ProxyNode, SimpleConfig 领域模型
 │   ├── parser/
 │   │   └── ProxyParser.kt           # 跨平台 URI/Base64/协议解析器
-│   ├── server/
-│   │   └── ConfigServer.kt          # 轻量本地配置 HTTP 服务器 + ZXing 二维码
 │   └── tester/
-│       └── NodeTester.kt            # TCP 延迟测试
+│       └── NodeTester.kt            # TCP / TLS 握手延迟测试
 └── presentation/
     ├── ui/                          # Jetpack Compose (Material 3)
     │   ├── dashboard/               # 控制中心
     │   ├── subscriptions/           # 订阅管理
-    │   ├── nodes/                   # 节点列表与测速
+    │   ├── nodes/                   # 节点列表、批量管理与测速
     │   ├── simpleconfig/            # 小白模式配置表单
-    │   ├── export/                  # 配置导出与服务控制
+    │   ├── export/                  # 配置文件导出与 JSON 预览
     │   └── MainScreen.kt            # 底部导航栏与主界面
     └── viewmodel/                   # MVVM 状态流 (StateFlow)
 ```
@@ -88,23 +86,19 @@ app/
 
 ## 📖 与 SFA (sing-box For Android) 协作使用教程
 
-### 方式 A：通过本地 HTTP 服务导入 (最简便)
+### 导出并从本地导入 SFA (稳定推荐)
 
 1. 在 Subout Android 的【订阅】页面添加机场订阅并点击【同步】。
 2. 在【配置】页面按需选择（默认已配置好最推荐的 FakeIP + TUN + 智能分流）。
-3. 切换至【导出】页面，点击【启动临时服务】。
+3. 切换至【导出】页面，点击【导出到下载目录 (Download/subout)】。
+   - 文件将保存至系统公共下载目录：`Download/subout/sing-box.json`。
 4. 打开 **sing-box For Android (SFA)** 客户端：
-   - 切换到【配置文件】标签页。
-   - 点击右上角 `+` 号。
-   - 选择【从 URL 导入】并粘贴链接 `http://127.0.0.1:8888/config`（或点击扫描二维码直接扫码）。
-5. 导入并保存后，返回 Subout Android 点击【停止服务】。
-6. 在 SFA 中点击开关启动代理即可！
-
-### 方式 B：通过文件分享导入
-
-1. 在 Subout Android 的【导出】页面点击【分享到 SFA】。
-2. 系统弹出分享面板，选择 **sing-box**。
-3. SFA 将自动读取文件内容并创建配置文件。
+   - 切换到底部【Profiles / 配置文件】标签页。
+   - 点击【New Profile / 新建配置】。
+   - 类型选择【Local / 本地】或【Import / 导入】。
+   - 使用系统文件选择器浏览至 `下载 (Download) -> subout -> sing-box.json` 并选中。
+   - 保存配置。
+5. 在 SFA 中点击开关启动代理即可！
 
 ---
 

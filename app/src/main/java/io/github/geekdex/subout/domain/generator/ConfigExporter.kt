@@ -3,12 +3,10 @@ package io.github.geekdex.subout.domain.generator
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
+import android.media.MediaScannerConnection
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
-import androidx.core.content.FileProvider
 import java.io.File
 
 data class ExportResult(
@@ -20,13 +18,14 @@ class ConfigExporter(private val context: Context) {
 
     /**
      * 导出配置文件至公共下载目录中的 subout 子目录 (Download/subout/sing-box.json)。
-     * 兼容 Android 10+ 分区存储 (Scoped Storage) 与旧版直接路径，并同步在私有目录保留副本以便分享。
+     * 兼容 Android 10+ 分区存储 (Scoped Storage) 与直接文件访问，确保覆写时不产生 (1) 副本。
      */
     fun exportToFile(configJson: String, fileName: String = "sing-box.json"): ExportResult {
         val relativeSubDir = "${Environment.DIRECTORY_DOWNLOADS}/subout"
         var directFile: File? = null
+        var directWriteSuccess = false
 
-        // 1. 尝试直接通过文件系统写入 Download/subout
+        // 1. 优先尝试直接通过文件系统写入 Download/subout
         try {
             val publicDownloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
             val suboutDir = File(publicDownloadDir, "subout")
@@ -36,12 +35,21 @@ class ConfigExporter(private val context: Context) {
             val f = File(suboutDir, fileName)
             f.writeText(configJson)
             directFile = f
+            directWriteSuccess = true
+
+            // 通知系统媒体扫描器索引/更新此文件，保证其它应用及系统文件选择器可见
+            MediaScannerConnection.scanFile(
+                context,
+                arrayOf(f.absolutePath),
+                arrayOf("application/json"),
+                null
+            )
         } catch (_: Exception) {
-            // Android 10+ 分区存储可能限制直接 File API 写入，转入下一步 MediaStore
+            directWriteSuccess = false
         }
 
-        // 2. Android 10 (API 29) 及以上通过 MediaStore.Downloads 写入公共下载目录
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        // 2. 如果直接 File 写入受限，则使用 MediaStore.Downloads 写入
+        if (!directWriteSuccess && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
                 val resolver = context.contentResolver
                 val contentUri = MediaStore.Downloads.EXTERNAL_CONTENT_URI
@@ -109,39 +117,5 @@ class ConfigExporter(private val context: Context) {
             file = directFile ?: internalFile,
             displayPath = displayPath
         )
-    }
-
-    fun shareToSFA(configFile: File) {
-        val uri: Uri = FileProvider.getUriForFile(
-            context,
-            "${context.packageName}.fileprovider",
-            configFile
-        )
-
-        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "application/json"
-            putExtra(Intent.EXTRA_STREAM, uri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            // Attempt to target SFA if installed
-            setPackage("io.nekohasekai.sfa")
-        }
-
-        try {
-            val chooser = Intent.createChooser(shareIntent, "导入配置到 SFA").apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(chooser)
-        } catch (_: Exception) {
-            // If SFA specific package failed, fall back to general chooser
-            val fallbackIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "application/json"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            val chooser = Intent.createChooser(fallbackIntent, "分享配置文件").apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(chooser)
-        }
     }
 }

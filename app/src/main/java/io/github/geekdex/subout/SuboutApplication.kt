@@ -7,7 +7,6 @@ import io.github.geekdex.subout.data.repository.ConfigRepository
 import io.github.geekdex.subout.data.repository.NodeRepository
 import io.github.geekdex.subout.data.repository.SubscriptionRepository
 import io.github.geekdex.subout.domain.generator.ConfigExporter
-import io.github.geekdex.subout.domain.server.ConfigServer
 
 class SuboutApplication : Application() {
 
@@ -24,9 +23,6 @@ class SuboutApplication : Application() {
     }
     val configExporter by lazy {
         ConfigExporter(this)
-    }
-    val configServer by lazy {
-        ConfigServer()
     }
 
     override fun onCreate() {
