@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -101,23 +102,37 @@ fun NodesScreen(
                     Column {
                         Text("节点列表", fontWeight = FontWeight.Bold)
                         Text(
-                            "共 ${uiState.rawNodes.size} 个，已启用 ${uiState.rawNodes.count { it.enabled }} 个",
+                            if (uiState.isTestingAll && uiState.totalTestingCount > 0) {
+                                val finished = uiState.totalTestingCount - uiState.testingNodeIds.size
+                                "测速中 ($finished/${uiState.totalTestingCount})..."
+                            } else {
+                                "共 ${uiState.rawNodes.size} 个，已启用 ${uiState.rawNodes.count { it.enabled }} 个"
+                            },
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = if (uiState.isTestingAll) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = { viewModel.testAllVisibleNodes() },
-                        enabled = !uiState.isTestingAll && uiState.filteredNodes.isNotEmpty()
-                    ) {
-                        if (uiState.isTestingAll) {
+                    if (uiState.isTestingAll) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(end = 4.dp)
+                        ) {
                             CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
+                                modifier = Modifier.size(16.dp),
                                 strokeWidth = 2.dp
                             )
-                        } else {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            TextButton(onClick = { viewModel.cancelBatchTesting() }) {
+                                Text("停止", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                    } else {
+                        IconButton(
+                            onClick = { viewModel.testAllVisibleNodes() },
+                            enabled = uiState.filteredNodes.isNotEmpty()
+                        ) {
                             Icon(Icons.Default.Speed, contentDescription = "一键测速")
                         }
                     }
@@ -229,15 +244,42 @@ fun NodesScreen(
                     }
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { viewModel.setAllEnabled(true) }) {
-                        Text("全选", style = MaterialTheme.typography.labelMedium)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(
+                        onClick = { viewModel.setAllEnabled(true) },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            "全选",
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                            softWrap = false
+                        )
                     }
-                    TextButton(onClick = { viewModel.setAllEnabled(false) }) {
-                        Text("全禁", style = MaterialTheme.typography.labelMedium)
+                    TextButton(
+                        onClick = { viewModel.setAllEnabled(false) },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            "全禁",
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                            softWrap = false
+                        )
                     }
-                    TextButton(onClick = { viewModel.clearLatencies() }) {
-                        Text("清空延迟", style = MaterialTheme.typography.labelMedium)
+                    TextButton(
+                        onClick = { viewModel.clearLatencies() },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            "清空测速",
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                            softWrap = false
+                        )
                     }
                 }
             }
@@ -459,32 +501,67 @@ fun LatencyBadge(
     isTesting: Boolean,
     onClick: () -> Unit
 ) {
-    if (isTesting) {
-        CircularProgressIndicator(
-            modifier = Modifier.size(18.dp),
-            strokeWidth = 2.dp
+    val (text, color, bgColor) = when {
+        isTesting -> Triple(
+            "测试中",
+            MaterialTheme.colorScheme.primary,
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
         )
-    } else {
-        val (text, color) = when {
-            latency == null -> Pair("测速", MaterialTheme.colorScheme.outline)
-            latency < 160 -> Pair("${latency}ms", Color(0xFF2E7D32))
-            latency < 360 -> Pair("${latency}ms", Color(0xFFEF6C00))
-            else -> Pair("${latency}ms", Color(0xFFC62828))
-        }
+        latency == null -> Triple(
+            "测速",
+            MaterialTheme.colorScheme.outline,
+            MaterialTheme.colorScheme.outline.copy(alpha = 0.08f)
+        )
+        latency == Node.LATENCY_TIMEOUT -> Triple(
+            "超时",
+            MaterialTheme.colorScheme.error,
+            MaterialTheme.colorScheme.error.copy(alpha = 0.12f)
+        )
+        latency < 160 -> Triple(
+            "${latency}ms",
+            Color(0xFF2E7D32),
+            Color(0xFF2E7D32).copy(alpha = 0.12f)
+        )
+        latency < 360 -> Triple(
+            "${latency}ms",
+            Color(0xFFEF6C00),
+            Color(0xFFEF6C00).copy(alpha = 0.12f)
+        )
+        else -> Triple(
+            "${latency}ms",
+            Color(0xFFC62828),
+            Color(0xFFC62828).copy(alpha = 0.12f)
+        )
+    }
 
-        Surface(
-            shape = RoundedCornerShape(6.dp),
-            color = color.copy(alpha = 0.15f),
-            modifier = Modifier
-                .clickable { onClick() }
-                .padding(2.dp)
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = bgColor,
+        modifier = Modifier
+            .then(
+                if (!isTesting) Modifier.clickable { onClick() }
+                else Modifier
+            )
+            .padding(2.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
         ) {
+            if (isTesting) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(12.dp),
+                    strokeWidth = 1.5.dp,
+                    color = color
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+            }
             Text(
                 text = text,
                 color = color,
                 style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                fontWeight = FontWeight.Bold
             )
         }
     }

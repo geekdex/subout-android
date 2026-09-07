@@ -7,15 +7,21 @@ import io.github.geekdex.subout.SuboutApplication
 import io.github.geekdex.subout.data.db.entities.Node
 import io.github.geekdex.subout.data.repository.NodeRepository
 import io.github.geekdex.subout.domain.tester.NodeTester
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import java.util.concurrent.atomic.AtomicInteger
 
 enum class NodeSortOption {
     DEFAULT,
@@ -32,6 +38,7 @@ data class NodesUiState(
     val sortOption: NodeSortOption = NodeSortOption.DEFAULT,
     val testingNodeIds: Set<Long> = emptySet(),
     val isTestingAll: Boolean = false,
+    val totalTestingCount: Int = 0,
     val message: String? = null
 )
 
@@ -44,7 +51,10 @@ class NodesViewModel(
     private val _sortOption = MutableStateFlow(NodeSortOption.DEFAULT)
     private val _testingNodeIds = MutableStateFlow<Set<Long>>(emptySet())
     private val _isTestingAll = MutableStateFlow(false)
+    private val _totalTestingCount = MutableStateFlow(0)
     private val _message = MutableStateFlow<String?>(null)
+
+    private var batchTestJob: Job? = null
 
     private data class FilterParams(
         val query: String,
@@ -55,6 +65,7 @@ class NodesViewModel(
     private data class StatusParams(
         val testingIds: Set<Long>,
         val testingAll: Boolean,
+        val totalCount: Int,
         val msg: String?
     )
 
@@ -62,8 +73,13 @@ class NodesViewModel(
         FilterParams(query, protocol, sort)
     }
 
-    private val statusFlow = combine(_testingNodeIds, _isTestingAll, _message) { ids, all, msg ->
-        StatusParams(ids, all, msg)
+    private val statusFlow = combine(
+        _testingNodeIds,
+        _isTestingAll,
+        _totalTestingCount,
+        _message
+    ) { ids, all, total, msg ->
+        StatusParams(ids, all, total, msg)
     }
 
     val uiState: StateFlow<NodesUiState> = combine(
@@ -85,8 +101,13 @@ class NodesViewModel(
             NodeSortOption.NAME -> filtered.sortedBy { it.tag.lowercase() }
             NodeSortOption.PROTOCOL -> filtered.sortedBy { it.protocol }
             NodeSortOption.LATENCY -> filtered.sortedWith(
-                compareBy<Node> { it.latency == null }
-                    .thenBy { it.latency ?: Int.MAX_VALUE }
+                compareBy<Node> {
+                    when {
+                        it.latency == null -> 2
+                        it.latency < 0 -> 1
+                        else -> 0
+                    }
+                }.thenBy { it.latency ?: Int.MAX_VALUE }
             )
         }
 
@@ -98,6 +119,7 @@ class NodesViewModel(
             sortOption = filter.sort,
             testingNodeIds = status.testingIds,
             isTestingAll = status.testingAll,
+            totalTestingCount = status.totalCount,
             message = status.msg
         )
     }.stateIn(
@@ -132,40 +154,73 @@ class NodesViewModel(
     }
 
     fun testNode(node: Node) {
+        if (_testingNodeIds.value.contains(node.id)) return
+
         viewModelScope.launch {
-            _testingNodeIds.value = _testingNodeIds.value + node.id
+            _testingNodeIds.update { it + node.id }
             try {
-                val latency = NodeTester.testTcpPing(node.server, node.serverPort)
+                val startTime = System.currentTimeMillis()
+                val latency = NodeTester.testNodePing(node)
+                val elapsed = System.currentTimeMillis() - startTime
+                if (elapsed < 250) {
+                    delay(250 - elapsed)
+                }
                 nodeRepository.updateNodeLatency(node.id, latency)
+                if (latency == Node.LATENCY_TIMEOUT) {
+                    _message.value = "节点「${node.tag}」连接超时"
+                }
             } finally {
-                _testingNodeIds.value = _testingNodeIds.value - node.id
+                _testingNodeIds.update { it - node.id }
             }
         }
     }
 
     fun testAllVisibleNodes() {
         val visibleNodes = uiState.value.filteredNodes
-        if (visibleNodes.isEmpty()) return
+        if (visibleNodes.isEmpty() || _isTestingAll.value) return
 
-        viewModelScope.launch(Dispatchers.IO) {
+        batchTestJob?.cancel()
+        batchTestJob = viewModelScope.launch(Dispatchers.IO) {
             _isTestingAll.value = true
+            _totalTestingCount.value = visibleNodes.size
             _testingNodeIds.value = visibleNodes.map { it.id }.toSet()
+
+            val semaphore = Semaphore(10)
+            val successCount = AtomicInteger(0)
+            val timeoutCount = AtomicInteger(0)
+
             try {
-                visibleNodes.map { node ->
-                    async {
-                        val latency = NodeTester.testTcpPing(node.server, node.serverPort)
-                        nodeRepository.updateNodeLatency(node.id, latency)
-                        _testingNodeIds.value = _testingNodeIds.value - node.id
+                coroutineScope {
+                    visibleNodes.forEach { node ->
+                        launch {
+                            semaphore.withPermit {
+                                val latency = NodeTester.testNodePing(node)
+                                nodeRepository.updateNodeLatency(node.id, latency)
+                                if (latency >= 0) {
+                                    successCount.incrementAndGet()
+                                } else {
+                                    timeoutCount.incrementAndGet()
+                                }
+                                _testingNodeIds.update { it - node.id }
+                            }
+                        }
                     }
-                }.awaitAll()
-                _message.value = "测速完成"
+                }
+                _message.value = "测速完成: 可用 ${successCount.get()} 个，超时 ${timeoutCount.get()} 个"
+            } catch (e: CancellationException) {
+                _message.value = "已停止测速"
             } catch (e: Exception) {
                 _message.value = "测速出错: ${e.message}"
             } finally {
                 _isTestingAll.value = false
+                _totalTestingCount.value = 0
                 _testingNodeIds.value = emptySet()
             }
         }
+    }
+
+    fun cancelBatchTesting() {
+        batchTestJob?.cancel()
     }
 
     fun clearLatencies() {

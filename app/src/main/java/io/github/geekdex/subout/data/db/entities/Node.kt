@@ -23,6 +23,15 @@ data class Node(
     val serverPort: Int,
     val rawJson: String,
     val enabled: Boolean = true,
-    val latency: Int? = null, // ms, null means untested or timeout
+    val latency: Int? = null, // ms, null means untested; -1 means timeout/error
     val testTime: Long? = null
-)
+) {
+    companion object {
+        const val LATENCY_TIMEOUT = -1
+    }
+
+    val isUntested: Boolean get() = latency == null
+    val isTimeout: Boolean get() = latency == LATENCY_TIMEOUT
+    val isSuccess: Boolean get() = latency != null && latency >= 0
+}
+
