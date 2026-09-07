@@ -61,7 +61,10 @@ object SimpleConfigGenerator {
         // 5. Route
         root.add("route", buildRouteSection(config.route, hasNodes, targetProxy))
 
-        // 6. Experimental
+        // 6. HTTP Clients (sing-box 1.14+ standard for remote rule-sets and downloads)
+        root.add("http_clients", buildHttpClientsSection(hasNodes, targetProxy))
+
+        // 7. Experimental
         root.add("experimental", JsonObject())
 
         return root
@@ -161,7 +164,6 @@ object SimpleConfigGenerator {
             add("rules", rules)
             addProperty("final", "dns_local")
             addProperty("strategy", "ipv4_only")
-            addProperty("independent_cache", true)
         }
     }
 
@@ -449,7 +451,7 @@ object SimpleConfigGenerator {
             }
         }
 
-        val downloadDetourRemote = if (hasNodes && targetProxy != "direct") "proxy" else "direct"
+        val downloadClientRemote = if (hasNodes && targetProxy != "direct") "proxy" else "direct"
 
         val ruleSets = JsonArray().apply {
             add(JsonObject().apply {
@@ -457,7 +459,7 @@ object SimpleConfigGenerator {
                 addProperty("type", "remote")
                 addProperty("format", "binary")
                 addProperty("url", "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs")
-                addProperty("download_detour", "direct")
+                addProperty("http_client", "direct")
                 addProperty("update_interval", "1d")
             })
             add(JsonObject().apply {
@@ -465,7 +467,7 @@ object SimpleConfigGenerator {
                 addProperty("type", "remote")
                 addProperty("format", "binary")
                 addProperty("url", "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-geolocation-!cn.srs")
-                addProperty("download_detour", downloadDetourRemote)
+                addProperty("http_client", downloadClientRemote)
                 addProperty("update_interval", "1d")
             })
             add(JsonObject().apply {
@@ -473,7 +475,7 @@ object SimpleConfigGenerator {
                 addProperty("type", "remote")
                 addProperty("format", "binary")
                 addProperty("url", "https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs")
-                addProperty("download_detour", "direct")
+                addProperty("http_client", "direct")
                 addProperty("update_interval", "1d")
             })
             if (routeConfig.block_ads) {
@@ -482,7 +484,7 @@ object SimpleConfigGenerator {
                     addProperty("type", "remote")
                     addProperty("format", "binary")
                     addProperty("url", "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs")
-                    addProperty("download_detour", downloadDetourRemote)
+                    addProperty("http_client", downloadClientRemote)
                     addProperty("update_interval", "1d")
                 })
             }
@@ -491,9 +493,26 @@ object SimpleConfigGenerator {
         return JsonObject().apply {
             addProperty("auto_detect_interface", true)
             addProperty("default_domain_resolver", "dns_local")
+            addProperty("default_http_client", "direct")
             add("rules", rules)
             add("rule_set", ruleSets)
             addProperty("final", targetProxy)
+        }
+    }
+
+    private fun buildHttpClientsSection(hasNodes: Boolean, targetProxy: String): JsonArray {
+        return JsonArray().apply {
+            // direct client: connects directly (no detour needed)
+            add(JsonObject().apply {
+                addProperty("tag", "direct")
+            })
+            if (hasNodes && targetProxy != "direct") {
+                // proxy client: connects via proxy selector
+                add(JsonObject().apply {
+                    addProperty("tag", "proxy")
+                    addProperty("detour", "proxy")
+                })
+            }
         }
     }
 

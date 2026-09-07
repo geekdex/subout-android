@@ -178,7 +178,7 @@ fun DashboardScreen(
             ) {
                 QuickActionCard(
                     title = "配置导出",
-                    subtitle = "导出 sing-box 配置",
+                    subtitle = "服务同步 / 文件导出",
                     icon = Icons.Default.Download,
                     modifier = Modifier.weight(1f),
                     onClick = onNavigateToExport
@@ -236,10 +236,10 @@ fun DashboardScreen(
                         )
                     }
                     Text(
-                        "1. 在【订阅】中添加您的机场订阅源并同步获取节点。\n" +
-                        "2. 在【配置】中按需调整模式（默认已推荐最佳配置）。\n" +
-                        "3. 在【导出】中点击导出配置文件至系统公共下载目录 (Download/subout)。\n" +
-                        "4. 打开 SFA 选择【本地导入】加载该文件，启动代理即可！",
+                        "1. 在【订阅】中添加机场订阅并同步节点，在【配置】中按需调整模式；\n" +
+                        "2. 在【导出】中启动本地配置服务，点击【一键导入到 SFA】快速创建远程配置；\n" +
+                        "3. 后续在 Subout 更改节点或规则后，保持服务运行，在 SFA 中点击刷新即可秒级同步！\n" +
+                        "4. 亦可选择直接导出配置文件到本地下载目录 (Download/subout) 进行本地导入。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = MaterialTheme.typography.bodySmall.lineHeight * 1.3f

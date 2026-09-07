@@ -614,15 +614,21 @@ object ProxyParser {
                                 if (!sid.isNullOrEmpty()) addProperty("short_id", sid)
                             }
                             add("reality", realityObj)
-                        }
-
-                        val fp = params["fp"]
-                        if (!fp.isNullOrEmpty()) {
+                            val fp = params["fp"]?.ifEmpty { "chrome" } ?: "chrome"
                             val utlsObj = JsonObject().apply {
                                 addProperty("enabled", true)
                                 addProperty("fingerprint", fp)
                             }
                             add("utls", utlsObj)
+                        } else {
+                            val fp = params["fp"]
+                            if (!fp.isNullOrEmpty()) {
+                                val utlsObj = JsonObject().apply {
+                                    addProperty("enabled", true)
+                                    addProperty("fingerprint", fp)
+                                }
+                                add("utls", utlsObj)
+                            }
                         }
                     }
                 } else null

@@ -39,9 +39,15 @@ class SimpleConfigGeneratorTest {
         assertNotNull(json.get("route"))
         assertNotNull(json.get("experimental"))
 
-        // Strategy must be ipv4_only
+        // DNS does not contain deprecated independent_cache
         val dns = json.getAsJsonObject("dns")
         assertEquals("ipv4_only", dns.get("strategy").asString)
+        org.junit.Assert.assertNull(dns.get("independent_cache"))
+
+        // Top-level http_clients is configured
+        val httpClients = json.getAsJsonArray("http_clients")
+        assertNotNull(httpClients)
+        assertTrue(httpClients.any { it.asJsonObject.get("tag").asString == "direct" })
 
         // Default DNS mode is preset_fakeip
         val servers = dns.getAsJsonArray("servers")
@@ -59,10 +65,17 @@ class SimpleConfigGeneratorTest {
         val autoTest = outbounds.firstOrNull { it.asJsonObject.get("tag")?.asString == "AUTO-Test" }
         assertNotNull(autoTest)
 
-        // Route contains rules and rule_sets
+        // Route contains rules, rule_sets, default_http_client, and uses http_client instead of download_detour
         val route = json.getAsJsonObject("route")
+        assertEquals("direct", route.get("default_http_client").asString)
+        val ruleSets = route.getAsJsonArray("rule_set")
         assertTrue(route.getAsJsonArray("rules").size() > 0)
-        assertTrue(route.getAsJsonArray("rule_set").size() > 0)
+        assertTrue(ruleSets.size() > 0)
+        ruleSets.forEach { rs ->
+            val obj = rs.asJsonObject
+            assertNotNull("rule_set should have http_client", obj.get("http_client"))
+            org.junit.Assert.assertNull("rule_set should not have deprecated download_detour", obj.get("download_detour"))
+        }
     }
 
     @Test
@@ -106,7 +119,7 @@ class SimpleConfigGeneratorTest {
                 protocol = "vless",
                 server = "sg02.node.com",
                 serverPort = 443,
-                rawJson = """{"type":"vless","tag":"🇸🇬 新加坡-02-BGP","server":"sg02.node.com","server_port":443,"uuid":"11111111-2222-3333-4444-555555555555","flow":"xtls-rprx-vision","tls":{"enabled":true,"server_name":"sg02.node.com","reality":{"enabled":true,"public_key":"example_pbk_12345"}},"packet_encoding":"xudp"}""",
+                rawJson = """{"type":"vless","tag":"🇸🇬 新加坡-02-BGP","server":"sg02.node.com","server_port":443,"uuid":"11111111-2222-3333-4444-555555555555","flow":"xtls-rprx-vision","tls":{"enabled":true,"server_name":"sg02.node.com","reality":{"enabled":true,"public_key":"MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA"},"utls":{"enabled":true,"fingerprint":"chrome"}},"packet_encoding":"xudp"}""",
                 enabled = true
             ),
             Node(

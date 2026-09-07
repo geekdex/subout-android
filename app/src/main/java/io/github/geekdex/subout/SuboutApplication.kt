@@ -24,10 +24,18 @@ class SuboutApplication : Application() {
     val configExporter by lazy {
         ConfigExporter(this)
     }
+    val configServer by lazy {
+        io.github.geekdex.subout.domain.server.ConfigServer()
+    }
 
     override fun onCreate() {
         super.onCreate()
         instance = this
+        configServer.contentProvider = {
+            val config = configRepository.configState.value
+            val enabledNodes = nodeRepository.getEnabledNodes()
+            io.github.geekdex.subout.domain.generator.SimpleConfigGenerator.generatePrettyString(config, enabledNodes)
+        }
     }
 
     companion object {

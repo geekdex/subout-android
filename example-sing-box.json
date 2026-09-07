@@ -32,8 +32,7 @@
       }
     ],
     "final": "dns_local",
-    "strategy": "ipv4_only",
-    "independent_cache": true
+    "strategy": "ipv4_only"
   },
   "inbounds": [
     {
@@ -62,9 +61,9 @@
       "outbounds": [
         "AUTO-Test",
         "direct",
-        "🇭🇰 香港-01-IEPL",
-        "🇸🇬 新加坡-02-BGP",
-        "🇯🇵 日本-03-CN2"
+        "\ud83c\udded\ud83c\uddf0 \u9999\u6e2f-01-IEPL",
+        "\ud83c\uddf8\ud83c\uddec \u65b0\u52a0\u5761-02-BGP",
+        "\ud83c\uddef\ud83c\uddf5 \u65e5\u672c-03-CN2"
       ],
       "default": "AUTO-Test"
     },
@@ -75,14 +74,14 @@
       "interval": "3m",
       "tolerance": 50,
       "outbounds": [
-        "🇭🇰 香港-01-IEPL",
-        "🇸🇬 新加坡-02-BGP",
-        "🇯🇵 日本-03-CN2"
+        "\ud83c\udded\ud83c\uddf0 \u9999\u6e2f-01-IEPL",
+        "\ud83c\uddf8\ud83c\uddec \u65b0\u52a0\u5761-02-BGP",
+        "\ud83c\uddef\ud83c\uddf5 \u65e5\u672c-03-CN2"
       ]
     },
     {
       "type": "trojan",
-      "tag": "🇭🇰 香港-01-IEPL",
+      "tag": "\ud83c\udded\ud83c\uddf0 \u9999\u6e2f-01-IEPL",
       "server": "hk01.node.com",
       "server_port": 443,
       "password": "secret_password",
@@ -93,7 +92,7 @@
     },
     {
       "type": "vless",
-      "tag": "🇸🇬 新加坡-02-BGP",
+      "tag": "\ud83c\uddf8\ud83c\uddec \u65b0\u52a0\u5761-02-BGP",
       "server": "sg02.node.com",
       "server_port": 443,
       "uuid": "11111111-2222-3333-4444-555555555555",
@@ -103,14 +102,18 @@
         "server_name": "sg02.node.com",
         "reality": {
           "enabled": true,
-          "public_key": "example_pbk_12345"
+          "public_key": "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA"
+        },
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
         }
       },
       "packet_encoding": "xudp"
     },
     {
       "type": "vmess",
-      "tag": "🇯🇵 日本-03-CN2",
+      "tag": "\ud83c\uddef\ud83c\uddf5 \u65e5\u672c-03-CN2",
       "server": "jp03.node.com",
       "server_port": 443,
       "uuid": "22222222-3333-4444-5555-666666666666",
@@ -132,6 +135,7 @@
   "route": {
     "auto_detect_interface": true,
     "default_domain_resolver": "dns_local",
+    "default_http_client": "direct",
     "rules": [
       {
         "action": "sniff"
@@ -174,7 +178,7 @@
         "type": "remote",
         "format": "binary",
         "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs",
-        "download_detour": "direct",
+        "http_client": "direct",
         "update_interval": "1d"
       },
       {
@@ -182,7 +186,7 @@
         "type": "remote",
         "format": "binary",
         "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-geolocation-!cn.srs",
-        "download_detour": "proxy",
+        "http_client": "proxy",
         "update_interval": "1d"
       },
       {
@@ -190,7 +194,7 @@
         "type": "remote",
         "format": "binary",
         "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs",
-        "download_detour": "direct",
+        "http_client": "direct",
         "update_interval": "1d"
       },
       {
@@ -198,11 +202,20 @@
         "type": "remote",
         "format": "binary",
         "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs",
-        "download_detour": "proxy",
+        "http_client": "proxy",
         "update_interval": "1d"
       }
     ],
     "final": "AUTO-Test"
   },
+  "http_clients": [
+    {
+      "tag": "direct"
+    },
+    {
+      "tag": "proxy",
+      "detour": "proxy"
+    }
+  ],
   "experimental": {}
 }
