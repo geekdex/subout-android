@@ -25,6 +25,7 @@ data class ExportUiState(
     val serverUrl: String = "",
     val qrBitmap: Bitmap? = null,
     val exportedFile: File? = null,
+    val exportedPath: String? = null,
     val message: String? = null
 )
 
@@ -77,12 +78,13 @@ class ExportViewModel(
         val json = _uiState.value.configJson
         if (json.isBlank()) return null
         return try {
-            val file = configExporter.exportToFile(json)
+            val result = configExporter.exportToFile(json)
             _uiState.value = _uiState.value.copy(
-                exportedFile = file,
-                message = "已导出至: ${file.absolutePath}"
+                exportedFile = result.file,
+                exportedPath = result.displayPath,
+                message = "已导出至: ${result.displayPath}"
             )
-            file
+            result.file
         } catch (e: Exception) {
             _uiState.value = _uiState.value.copy(message = "文件导出失败: ${e.message}")
             null

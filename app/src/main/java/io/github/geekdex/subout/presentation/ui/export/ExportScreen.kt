@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Folder
@@ -308,7 +309,7 @@ fun ExportScreen(
                     }
 
                     Text(
-                        "将配置文件生成为 sing-box.json 文件，并支持直接发送到 SFA 客户端导入。",
+                        "将配置文件生成为 sing-box.json 保存至系统的【Download/subout/】目录，便于直接在 SFA 中本地导入，或点击分享至 SFA。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -323,7 +324,7 @@ fun ExportScreen(
                         ) {
                             Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("导出到本地")
+                            Text("导出到下载目录")
                         }
 
                         Button(
@@ -333,6 +334,32 @@ fun ExportScreen(
                             Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("分享到 SFA")
+                        }
+                    }
+
+                    if (uiState.exportedPath != null) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "已保存至: ${uiState.exportedPath}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
                         }
                     }
                 }
@@ -363,9 +390,10 @@ fun ExportScreen(
                         "2. 打开 SFA 应用 -> 配置文件 -> 点击右上角加号 -> 选择【从 URL 导入】；\n" +
                         "3. 粘贴上述地址 (或直接扫描二维码)；\n" +
                         "4. 导入保存完成后，回到本应用点击【停止服务】。\n\n" +
-                        "方式二: 文件分享导入\n" +
-                        "1. 点击【分享到 SFA】；\n" +
-                        "2. 在系统分享面板中选择 sing-box For Android 导入。",
+                        "方式二: 本地文件导入 / 分享导入\n" +
+                        "1. 点击【导出到下载目录】，配置文件将保存至 Download/subout/sing-box.json；\n" +
+                        "2. 在 SFA 应用 -> 配置文件 -> 点击右上角加号 -> 选择【从本地导入】并选择该文件；\n" +
+                        "3. 或直接点击【分享到 SFA】发送至客户端导入。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = MaterialTheme.typography.bodySmall.lineHeight * 1.3f
