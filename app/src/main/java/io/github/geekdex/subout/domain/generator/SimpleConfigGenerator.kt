@@ -5,6 +5,8 @@ import com.google.gson.GsonBuilder
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import io.github.geekdex.subout.data.db.entities.Node
+import io.github.geekdex.subout.domain.model.AppRulePresets
+import io.github.geekdex.subout.domain.model.PresetApp
 import io.github.geekdex.subout.domain.model.SimpleConfig
 import io.github.geekdex.subout.domain.model.SimpleDnsConfig
 import io.github.geekdex.subout.domain.model.SimpleInboundConfig
@@ -13,7 +15,23 @@ import io.github.geekdex.subout.domain.model.SimpleRouteConfig
 
 object SimpleConfigGenerator {
 
-    private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
+    private val gson: Gson = GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create()
+
+    private fun List<String>.toJsonArray(): JsonArray {
+        val arr = JsonArray()
+        for (item in this) {
+            arr.add(item)
+        }
+        return arr
+    }
+
+    private fun List<PresetApp>.toPackagesJsonArray(): JsonArray {
+        val arr = JsonArray()
+        for (app in this) {
+            arr.add(app.packageName)
+        }
+        return arr
+    }
 
     fun generate(config: SimpleConfig, enabledNodes: List<Node>): JsonObject {
         val root = JsonObject()
@@ -59,7 +77,7 @@ object SimpleConfigGenerator {
         root.add("outbounds", buildOutboundsSection(config.route, proxyNodeTags, nodeOutbounds, hasNodes))
 
         // 5. Route
-        root.add("route", buildRouteSection(config.route, hasNodes, targetProxy))
+        root.add("route", buildRouteSection(config.route, proxyNodeTags, hasNodes, targetProxy))
 
         // 6. HTTP Clients (sing-box 1.14+ standard for remote rule-sets and downloads)
         root.add("http_clients", buildHttpClientsSection(hasNodes, targetProxy))
@@ -135,8 +153,65 @@ object SimpleConfigGenerator {
             "dns_local"
         }
 
+        if (hasNodes && targetProxy != "direct") {
+            if (routeConfig.isRouteGoogle) {
+                rules.add(JsonObject().apply {
+                    add("package_name", AppRulePresets.google.apps.toPackagesJsonArray())
+                    addProperty("server", remoteDnsTag)
+                })
+                rules.add(JsonObject().apply {
+                    add("domain_suffix", AppRulePresets.google.domainSuffixes.toJsonArray())
+                    addProperty("server", remoteDnsTag)
+                })
+            }
+            if (routeConfig.isRouteSocial) {
+                rules.add(JsonObject().apply {
+                    add("package_name", AppRulePresets.social.apps.toPackagesJsonArray())
+                    addProperty("server", remoteDnsTag)
+                })
+                rules.add(JsonObject().apply {
+                    add("domain_suffix", AppRulePresets.social.domainSuffixes.toJsonArray())
+                    addProperty("server", remoteDnsTag)
+                })
+            }
+            if (routeConfig.isRouteAi) {
+                rules.add(JsonObject().apply {
+                    add("package_name", AppRulePresets.ai.apps.toPackagesJsonArray())
+                    addProperty("server", remoteDnsTag)
+                })
+                rules.add(JsonObject().apply {
+                    add("domain_suffix", AppRulePresets.ai.domainSuffixes.toJsonArray())
+                    addProperty("server", remoteDnsTag)
+                })
+            }
+        }
+
         when (routeConfig.mode) {
             "smart" -> {
+                if (routeConfig.isRouteGoogle) {
+                    AppRulePresets.google.ruleSets.forEach { rs ->
+                        rules.add(JsonObject().apply {
+                            addProperty("rule_set", rs)
+                            addProperty("server", remoteDnsTag)
+                        })
+                    }
+                }
+                if (routeConfig.isRouteSocial) {
+                    AppRulePresets.social.ruleSets.forEach { rs ->
+                        rules.add(JsonObject().apply {
+                            addProperty("rule_set", rs)
+                            addProperty("server", remoteDnsTag)
+                        })
+                    }
+                }
+                if (routeConfig.isRouteAi) {
+                    AppRulePresets.ai.ruleSets.forEach { rs ->
+                        rules.add(JsonObject().apply {
+                            addProperty("rule_set", rs)
+                            addProperty("server", remoteDnsTag)
+                        })
+                    }
+                }
                 rules.add(JsonObject().apply {
                     addProperty("rule_set", "geosite-cn")
                     addProperty("server", "dns_local")
@@ -147,6 +222,30 @@ object SimpleConfigGenerator {
                 })
             }
             "gfw" -> {
+                if (routeConfig.isRouteGoogle) {
+                    AppRulePresets.google.ruleSets.forEach { rs ->
+                        rules.add(JsonObject().apply {
+                            addProperty("rule_set", rs)
+                            addProperty("server", remoteDnsTag)
+                        })
+                    }
+                }
+                if (routeConfig.isRouteSocial) {
+                    AppRulePresets.social.ruleSets.forEach { rs ->
+                        rules.add(JsonObject().apply {
+                            addProperty("rule_set", rs)
+                            addProperty("server", remoteDnsTag)
+                        })
+                    }
+                }
+                if (routeConfig.isRouteAi) {
+                    AppRulePresets.ai.ruleSets.forEach { rs ->
+                        rules.add(JsonObject().apply {
+                            addProperty("rule_set", rs)
+                            addProperty("server", remoteDnsTag)
+                        })
+                    }
+                }
                 rules.add(JsonObject().apply {
                     addProperty("rule_set", "geosite-geolocation-!cn")
                     addProperty("server", remoteDnsTag)
@@ -176,115 +275,60 @@ object SimpleConfigGenerator {
                 addProperty("inet4_range", "198.18.0.0/15")
             }
         }
-        if (s == "local") {
-            val obj = JsonObject().apply {
-                addProperty("tag", tag)
-                addProperty("type", "local")
+
+        val serverObj = JsonObject()
+        serverObj.addProperty("tag", tag)
+
+        when {
+            s.startsWith("https://", ignoreCase = true) || s.startsWith("h3://", ignoreCase = true) -> {
+                serverObj.addProperty("type", "https")
+                serverObj.addProperty("server", s)
             }
-            applyDnsDetour(obj, detour)
-            return obj
-        }
-
-        try {
-            val uri = java.net.URI(s)
-            val scheme = uri.scheme?.lowercase()
-            val host = uri.host ?: s
-            val port = if (uri.port != -1) uri.port else null
-            val path = uri.path
-
-            when (scheme) {
-                "https", "http" -> {
-                    val obj = JsonObject().apply {
-                        addProperty("tag", tag)
-                        addProperty("type", "https")
-                        addProperty("server", host)
-                        if (port != null) addProperty("server_port", port)
-                        if (!path.isNullOrEmpty() && path != "/") addProperty("path", path)
-                    }
-                    applyDnsDetour(obj, detour)
-                    return obj
-                }
-                "h3" -> {
-                    val obj = JsonObject().apply {
-                        addProperty("tag", tag)
-                        addProperty("type", "h3")
-                        addProperty("server", host)
-                        if (port != null) addProperty("server_port", port)
-                        if (!path.isNullOrEmpty() && path != "/") addProperty("path", path)
-                    }
-                    applyDnsDetour(obj, detour)
-                    return obj
-                }
-                "tls" -> {
-                    val obj = JsonObject().apply {
-                        addProperty("tag", tag)
-                        addProperty("type", "tls")
-                        addProperty("server", host)
-                        if (port != null) addProperty("server_port", port)
-                    }
-                    applyDnsDetour(obj, detour)
-                    return obj
-                }
-                "tcp" -> {
-                    val obj = JsonObject().apply {
-                        addProperty("tag", tag)
-                        addProperty("type", "tcp")
-                        addProperty("server", host)
-                        if (port != null) addProperty("server_port", port)
-                    }
-                    applyDnsDetour(obj, detour)
-                    return obj
-                }
-                "quic" -> {
-                    val obj = JsonObject().apply {
-                        addProperty("tag", tag)
-                        addProperty("type", "quic")
-                        addProperty("server", host)
-                        if (port != null) addProperty("server_port", port)
-                    }
-                    applyDnsDetour(obj, detour)
-                    return obj
-                }
-                "udp" -> {
-                    val obj = JsonObject().apply {
-                        addProperty("tag", tag)
-                        addProperty("type", "udp")
-                        addProperty("server", host)
-                        if (port != null) addProperty("server_port", port)
-                    }
-                    applyDnsDetour(obj, detour)
-                    return obj
+            s.startsWith("tls://", ignoreCase = true) -> {
+                serverObj.addProperty("type", "tls")
+                val clean = s.substring(6)
+                if (clean.contains(":")) {
+                    val parts = clean.split(":")
+                    serverObj.addProperty("server", parts[0])
+                    parts[1].toIntOrNull()?.let { serverObj.addProperty("server_port", it) }
+                } else {
+                    serverObj.addProperty("server", clean)
                 }
             }
-        } catch (_: Exception) {
+            s.startsWith("tcp://", ignoreCase = true) -> {
+                serverObj.addProperty("type", "tcp")
+                val clean = s.substring(6)
+                if (clean.contains(":")) {
+                    val parts = clean.split(":")
+                    serverObj.addProperty("server", parts[0])
+                    parts[1].toIntOrNull()?.let { serverObj.addProperty("server_port", it) }
+                } else {
+                    serverObj.addProperty("server", clean)
+                }
+            }
+            else -> {
+                serverObj.addProperty("type", "udp")
+                val clean = if (s.startsWith("udp://", ignoreCase = true)) s.substring(6) else s
+                if (clean.contains(":")) {
+                    val parts = clean.split(":")
+                    serverObj.addProperty("server", parts[0])
+                    parts[1].toIntOrNull()?.let { serverObj.addProperty("server_port", it) }
+                } else {
+                    serverObj.addProperty("server", clean)
+                }
+            }
         }
 
-        // Fallback: standard IP or host:port
-        val (host, port) = if (s.contains(':') && !s.startsWith("[")) {
-            val parts = s.split(':', limit = 2)
-            Pair(parts[0], parts[1].toIntOrNull())
-        } else {
-            Pair(s, null)
+        if (detour != null) {
+            serverObj.addProperty("detour", detour)
         }
 
-        val obj = JsonObject().apply {
-            addProperty("tag", tag)
-            addProperty("type", "udp")
-            addProperty("server", host)
-            if (port != null) addProperty("server_port", port)
-        }
-        applyDnsDetour(obj, detour)
-        return obj
-    }
-
-    private fun applyDnsDetour(obj: JsonObject, detour: String?) {
-        if (!detour.isNullOrBlank() && detour != "direct") {
-            obj.addProperty("detour", detour.trim())
-        }
+        return serverObj
     }
 
     private fun buildInboundsSection(inboundConfig: SimpleInboundConfig): JsonArray {
         val inbounds = JsonArray()
+
         when (inboundConfig.inbound_type) {
             "tun" -> {
                 val tunObj = JsonObject().apply {
@@ -294,22 +338,33 @@ object SimpleConfigGenerator {
                     addrArr.add("172.19.0.1/30")
                     add("address", addrArr)
                     addProperty("auto_route", inboundConfig.tun_auto_route)
-                    addProperty("strict_route", true)
                     addProperty("stack", inboundConfig.tun_stack)
                 }
                 inbounds.add(tunObj)
             }
-            else -> {
-                val listenAddr = if (inboundConfig.allow_lan) "0.0.0.0" else "127.0.0.1"
+            "mixed" -> {
                 val mixedObj = JsonObject().apply {
                     addProperty("type", "mixed")
                     addProperty("tag", "mixed-in")
-                    addProperty("listen", listenAddr)
+                    addProperty("listen", if (inboundConfig.allow_lan) "0.0.0.0" else "127.0.0.1")
                     addProperty("listen_port", inboundConfig.mixed_port)
                 }
                 inbounds.add(mixedObj)
             }
+            else -> {
+                val tunObj = JsonObject().apply {
+                    addProperty("type", "tun")
+                    addProperty("tag", "tun-in")
+                    val addrArr = JsonArray()
+                    addrArr.add("172.19.0.1/30")
+                    add("address", addrArr)
+                    addProperty("auto_route", true)
+                    addProperty("stack", "system")
+                }
+                inbounds.add(tunObj)
+            }
         }
+
         return inbounds
     }
 
@@ -333,7 +388,7 @@ object SimpleConfigGenerator {
             addProperty("tag", "block")
         })
 
-        // 3. selector 'proxy'
+        // 3. selector proxy
         val selectorOutbounds = JsonArray()
         if (hasNodes) {
             selectorOutbounds.add("AUTO-Test")
@@ -359,7 +414,7 @@ object SimpleConfigGenerator {
         }
         outbounds.add(selectorObj)
 
-        // 4. urltest 'AUTO-Test'
+        // 4. urltest AUTO-Test
         if (hasNodes) {
             val urltestOutbounds = JsonArray()
             for (tag in proxyNodeTags) {
@@ -386,6 +441,7 @@ object SimpleConfigGenerator {
 
     private fun buildRouteSection(
         routeConfig: SimpleRouteConfig,
+        proxyNodeTags: List<String>,
         hasNodes: Boolean,
         targetProxy: String
     ): JsonObject {
@@ -403,6 +459,16 @@ object SimpleConfigGenerator {
             addProperty("action", "hijack-dns")
         })
 
+        // Block QUIC (UDP 443) traffic so that Android apps (especially Google Play & YouTube)
+        // immediately fall back to TCP HTTP/2 instead of hanging on UDP timeouts or unsupported UDP proxies
+        if (routeConfig.isBlockQuic) {
+            rules.add(JsonObject().apply {
+                addProperty("port", 443)
+                addProperty("network", "udp")
+                addProperty("outbound", "block")
+            })
+        }
+
         if (routeConfig.block_ads) {
             rules.add(JsonObject().apply {
                 addProperty("rule_set", "geosite-category-ads-all")
@@ -417,8 +483,78 @@ object SimpleConfigGenerator {
             })
         }
 
+        fun resolvePresetOutbound(customOutbound: String): String {
+            return when {
+                customOutbound.isNotBlank() && (proxyNodeTags.contains(customOutbound) || listOf("proxy", "AUTO-Test", "direct").contains(customOutbound)) -> customOutbound
+                else -> targetProxy
+            }
+        }
+
+        val googleTarget = resolvePresetOutbound(routeConfig.googleOutbound)
+        val socialTarget = resolvePresetOutbound(routeConfig.socialOutbound)
+        val aiTarget = resolvePresetOutbound(routeConfig.aiOutbound)
+
+        if (hasNodes) {
+            // Dedicated package name & domain suffix routing for enabled presets
+            if (routeConfig.isRouteGoogle && googleTarget != "direct") {
+                rules.add(JsonObject().apply {
+                    add("package_name", AppRulePresets.google.apps.toPackagesJsonArray())
+                    addProperty("outbound", googleTarget)
+                })
+                rules.add(JsonObject().apply {
+                    add("domain_suffix", AppRulePresets.google.domainSuffixes.toJsonArray())
+                    addProperty("outbound", googleTarget)
+                })
+            }
+            if (routeConfig.isRouteSocial && socialTarget != "direct") {
+                rules.add(JsonObject().apply {
+                    add("package_name", AppRulePresets.social.apps.toPackagesJsonArray())
+                    addProperty("outbound", socialTarget)
+                })
+                rules.add(JsonObject().apply {
+                    add("domain_suffix", AppRulePresets.social.domainSuffixes.toJsonArray())
+                    addProperty("outbound", socialTarget)
+                })
+            }
+            if (routeConfig.isRouteAi && aiTarget != "direct") {
+                rules.add(JsonObject().apply {
+                    add("package_name", AppRulePresets.ai.apps.toPackagesJsonArray())
+                    addProperty("outbound", aiTarget)
+                })
+                rules.add(JsonObject().apply {
+                    add("domain_suffix", AppRulePresets.ai.domainSuffixes.toJsonArray())
+                    addProperty("outbound", aiTarget)
+                })
+            }
+        }
+
         when (routeConfig.mode) {
             "smart" -> {
+                // Preset rule_sets MUST precede geosite-cn to prevent direct routing
+                if (hasNodes && routeConfig.isRouteGoogle && googleTarget != "direct") {
+                    AppRulePresets.google.ruleSets.forEach { rs ->
+                        rules.add(JsonObject().apply {
+                            addProperty("rule_set", rs)
+                            addProperty("outbound", googleTarget)
+                        })
+                    }
+                }
+                if (hasNodes && routeConfig.isRouteSocial && socialTarget != "direct") {
+                    AppRulePresets.social.ruleSets.forEach { rs ->
+                        rules.add(JsonObject().apply {
+                            addProperty("rule_set", rs)
+                            addProperty("outbound", socialTarget)
+                        })
+                    }
+                }
+                if (hasNodes && routeConfig.isRouteAi && aiTarget != "direct") {
+                    AppRulePresets.ai.ruleSets.forEach { rs ->
+                        rules.add(JsonObject().apply {
+                            addProperty("rule_set", rs)
+                            addProperty("outbound", aiTarget)
+                        })
+                    }
+                }
                 rules.add(JsonObject().apply {
                     addProperty("rule_set", "geosite-cn")
                     addProperty("outbound", "direct")
@@ -436,6 +572,30 @@ object SimpleConfigGenerator {
                 })
             }
             "gfw" -> {
+                if (hasNodes && routeConfig.isRouteGoogle && googleTarget != "direct") {
+                    AppRulePresets.google.ruleSets.forEach { rs ->
+                        rules.add(JsonObject().apply {
+                            addProperty("rule_set", rs)
+                            addProperty("outbound", googleTarget)
+                        })
+                    }
+                }
+                if (hasNodes && routeConfig.isRouteSocial && socialTarget != "direct") {
+                    AppRulePresets.social.ruleSets.forEach { rs ->
+                        rules.add(JsonObject().apply {
+                            addProperty("rule_set", rs)
+                            addProperty("outbound", socialTarget)
+                        })
+                    }
+                }
+                if (hasNodes && routeConfig.isRouteAi && aiTarget != "direct") {
+                    AppRulePresets.ai.ruleSets.forEach { rs ->
+                        rules.add(JsonObject().apply {
+                            addProperty("rule_set", rs)
+                            addProperty("outbound", aiTarget)
+                        })
+                    }
+                }
                 rules.add(JsonObject().apply {
                     addProperty("rule_set", "geosite-geolocation-!cn")
                     addProperty("outbound", targetProxy)
@@ -452,42 +612,44 @@ object SimpleConfigGenerator {
         }
 
         val downloadClientRemote = if (hasNodes && targetProxy != "direct") "proxy" else "direct"
+        val neededRuleSets = LinkedHashSet<String>()
 
-        val ruleSets = JsonArray().apply {
-            add(JsonObject().apply {
-                addProperty("tag", "geosite-cn")
-                addProperty("type", "remote")
-                addProperty("format", "binary")
-                addProperty("url", "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs")
-                addProperty("http_client", "direct")
-                addProperty("update_interval", "1d")
-            })
-            add(JsonObject().apply {
-                addProperty("tag", "geosite-geolocation-!cn")
-                addProperty("type", "remote")
-                addProperty("format", "binary")
-                addProperty("url", "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-geolocation-!cn.srs")
-                addProperty("http_client", downloadClientRemote)
-                addProperty("update_interval", "1d")
-            })
-            add(JsonObject().apply {
-                addProperty("tag", "geoip-cn")
-                addProperty("type", "remote")
-                addProperty("format", "binary")
-                addProperty("url", "https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs")
-                addProperty("http_client", "direct")
-                addProperty("update_interval", "1d")
-            })
-            if (routeConfig.block_ads) {
-                add(JsonObject().apply {
-                    addProperty("tag", "geosite-category-ads-all")
-                    addProperty("type", "remote")
-                    addProperty("format", "binary")
-                    addProperty("url", "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs")
-                    addProperty("http_client", downloadClientRemote)
-                    addProperty("update_interval", "1d")
-                })
+        if (routeConfig.block_ads) {
+            neededRuleSets.add("geosite-category-ads-all")
+        }
+        if (routeConfig.isRouteGoogle) {
+            neededRuleSets.addAll(AppRulePresets.google.ruleSets)
+        }
+        if (routeConfig.isRouteSocial) {
+            neededRuleSets.addAll(AppRulePresets.social.ruleSets)
+        }
+        if (routeConfig.isRouteAi) {
+            neededRuleSets.addAll(AppRulePresets.ai.ruleSets)
+        }
+        if (routeConfig.mode == "smart") {
+            neededRuleSets.add("geosite-cn")
+            neededRuleSets.add("geosite-geolocation-!cn")
+            neededRuleSets.add("geoip-cn")
+        } else if (routeConfig.mode == "gfw") {
+            neededRuleSets.add("geosite-geolocation-!cn")
+        }
+
+        val ruleSets = JsonArray()
+        for (tag in neededRuleSets) {
+            val url = if (tag == "geoip-cn") {
+                "https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs"
+            } else {
+                "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/$tag.srs"
             }
+            val client = if (tag == "geosite-cn" || tag == "geoip-cn") "direct" else downloadClientRemote
+            ruleSets.add(JsonObject().apply {
+                addProperty("tag", tag)
+                addProperty("type", "remote")
+                addProperty("format", "binary")
+                addProperty("url", url)
+                addProperty("http_client", client)
+                addProperty("update_interval", "1d")
+            })
         }
 
         return JsonObject().apply {

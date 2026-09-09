@@ -1,5 +1,6 @@
 package io.github.geekdex.subout.presentation.ui.simpleconfig
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,9 +16,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AltRoute
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Input
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.Button
@@ -49,6 +55,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import io.github.geekdex.subout.domain.model.AppRulePresets
+import io.github.geekdex.subout.domain.model.PresetCategory
 import io.github.geekdex.subout.presentation.viewmodel.SimpleConfigViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -276,7 +284,7 @@ fun SimpleConfigScreen(
 
             // 3. Route Section
             ConfigSectionCard(
-                title = "路由规则配置",
+                title = "路由基础配置",
                 icon = Icons.Default.AltRoute
             ) {
                 var routeModeExpanded by remember { mutableStateOf(false) }
@@ -379,7 +387,90 @@ fun SimpleConfigScreen(
                 }
             }
 
-            // 4. Log Section
+            // 4. WYSIWYG App Routing Section
+            ConfigSectionCard(
+                title = "常用应用分流 (所见即所得)",
+                icon = Icons.Default.Apps
+            ) {
+                Text(
+                    text = "透明直观的海外应用专属规则，支持一键配置。自动接管 Google 全家桶、主流海外社交与热门 AI，防止握手超时与白屏转圈。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // 一键配置快捷按钮栏
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { viewModel.enableAllRecommended() },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("一键开启推荐", style = MaterialTheme.typography.labelMedium)
+                    }
+
+                    OutlinedButton(
+                        onClick = { viewModel.forceAllProxy() },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.FlashOn, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("一键强制代理", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+
+                // 1) Google 全家桶
+                PresetAppRuleItem(
+                    category = AppRulePresets.google,
+                    enabled = config.route.isRouteGoogle,
+                    onEnabledChange = { viewModel.updateRoute(routeGoogle = it) },
+                    customOutbound = config.route.googleOutbound,
+                    onOutboundChange = { viewModel.updateRoute(googleOutbound = it) },
+                    availableOutbounds = uiState.availableOutbounds
+                )
+
+                // 2) 国际社交与通讯
+                PresetAppRuleItem(
+                    category = AppRulePresets.social,
+                    enabled = config.route.isRouteSocial,
+                    onEnabledChange = { viewModel.updateRoute(routeSocial = it) },
+                    customOutbound = config.route.socialOutbound,
+                    onOutboundChange = { viewModel.updateRoute(socialOutbound = it) },
+                    availableOutbounds = uiState.availableOutbounds
+                )
+
+                // 3) 热门 AI 助手
+                PresetAppRuleItem(
+                    category = AppRulePresets.ai,
+                    enabled = config.route.isRouteAi,
+                    onEnabledChange = { viewModel.updateRoute(routeAi = it) },
+                    customOutbound = config.route.aiOutbound,
+                    onOutboundChange = { viewModel.updateRoute(aiOutbound = it) },
+                    availableOutbounds = uiState.availableOutbounds
+                )
+
+                // 4) 阻断 QUIC (UDP 443)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("阻断 QUIC (UDP 443 协议)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        Text("强迫 YouTube / Play 商店立即回退至高速稳定 TCP 隧道，彻底解决视频首包无限转圈缓冲", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Switch(
+                        checked = config.route.isBlockQuic,
+                        onCheckedChange = { viewModel.updateRoute(blockQuic = it) }
+                    )
+                }
+            }
+
+            // 5. Log Section
             ConfigSectionCard(
                 title = "日志配置",
                 icon = Icons.Default.Article
@@ -460,6 +551,141 @@ fun SimpleConfigScreen(
             }
 
             Spacer(modifier = Modifier.height(24.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PresetAppRuleItem(
+    category: PresetCategory,
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+    customOutbound: String,
+    onOutboundChange: (String) -> Unit,
+    availableOutbounds: List<String>
+) {
+    var expandedDetails by remember { mutableStateOf(false) }
+    var outboundMenuExpanded by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(category.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text(category.summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = onEnabledChange
+                )
+            }
+
+            if (enabled) {
+                // Outbound selector
+                val displayOutbound = if (customOutbound.isBlank()) "默认跟随主代理 (推荐)" else customOutbound
+                ExposedDropdownMenuBox(
+                    expanded = outboundMenuExpanded,
+                    onExpandedChange = { outboundMenuExpanded = !outboundMenuExpanded }
+                ) {
+                    OutlinedTextField(
+                        value = displayOutbound,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("指定出站节点 / 策略") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = outboundMenuExpanded) },
+                        modifier = Modifier
+                            .menuAnchor()
+                            .fillMaxWidth()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = outboundMenuExpanded,
+                        onDismissRequest = { outboundMenuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("默认跟随主代理 (推荐)") },
+                            onClick = {
+                                onOutboundChange("")
+                                outboundMenuExpanded = false
+                            }
+                        )
+                        availableOutbounds.forEach { outbound ->
+                            DropdownMenuItem(
+                                text = { Text(outbound) },
+                                onClick = {
+                                    onOutboundChange(outbound)
+                                    outboundMenuExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                // Expand/Collapse Details Button
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { expandedDetails = !expandedDetails }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = if (expandedDetails) "收起规则明细" else "查看包含应用与域名 (${category.apps.size} 个应用)",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Icon(
+                        imageVector = if (expandedDetails) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                if (expandedDetails) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text("包含应用与包名 (package_name):", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                        category.apps.forEach { app ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("• ${app.name}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("(${app.packageName})", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text("包含规则集 (rule_set):", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                        Text(category.ruleSets.joinToString(", "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+
+                        Text("核心域名后缀 (domain_suffix):", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                        Text(category.domainSuffixes.joinToString(", "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+            }
         }
     }
 }

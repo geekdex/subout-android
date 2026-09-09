@@ -23,6 +23,149 @@
         "rcode": "NOERROR"
       },
       {
+        "package_name": [
+          "com.android.vending",
+          "com.google.android.gms",
+          "com.google.android.gsf",
+          "com.google.android.youtube",
+          "com.google.android.apps.youtube.music",
+          "com.google.android.googlequicksearchbox",
+          "com.android.chrome",
+          "com.google.android.gm",
+          "com.google.android.apps.maps",
+          "com.google.android.apps.photos",
+          "com.google.android.apps.docs"
+        ],
+        "server": "dns_fakeip"
+      },
+      {
+        "domain_suffix": [
+          ".google.com",
+          ".googleapis.com",
+          ".google.com.hk",
+          ".goog",
+          ".gstatic.com",
+          ".googleusercontent.com",
+          ".gvt1.com",
+          ".gvt2.com",
+          ".android.com",
+          ".youtube.com",
+          ".googlevideo.com",
+          ".ytimg.com",
+          ".ggpht.com",
+          ".youtu.be"
+        ],
+        "server": "dns_fakeip"
+      },
+      {
+        "package_name": [
+          "com.twitter.android",
+          "com.instagram.android",
+          "org.telegram.messenger",
+          "org.thunderdog.challegram",
+          "com.facebook.katana",
+          "com.facebook.orca",
+          "com.whatsapp",
+          "com.discord",
+          "com.instagram.barcelona",
+          "com.reddit.frontpage"
+        ],
+        "server": "dns_fakeip"
+      },
+      {
+        "domain_suffix": [
+          ".x.com",
+          ".twitter.com",
+          ".t.co",
+          ".twimg.com",
+          ".facebook.com",
+          ".fbcdn.net",
+          ".instagram.com",
+          ".cdninstagram.com",
+          ".threads.net",
+          ".t.me",
+          ".telegram.org",
+          ".whatsapp.com",
+          ".whatsapp.net",
+          ".discord.com",
+          ".discordapp.com",
+          ".reddit.com",
+          ".redd.it"
+        ],
+        "server": "dns_fakeip"
+      },
+      {
+        "package_name": [
+          "com.openai.chatgpt",
+          "com.anthropic.claude",
+          "com.google.android.apps.bard",
+          "com.microsoft.copilot",
+          "ai.perplexity.app.android"
+        ],
+        "server": "dns_fakeip"
+      },
+      {
+        "domain_suffix": [
+          ".openai.com",
+          ".chatgpt.com",
+          ".oaistatic.com",
+          ".oaiusercontent.com",
+          ".anthropic.com",
+          ".claude.ai",
+          ".bard.google.com",
+          ".gemini.google.com",
+          ".x.ai",
+          ".grok.com",
+          ".copilot.microsoft.com",
+          ".perplexity.ai"
+        ],
+        "server": "dns_fakeip"
+      },
+      {
+        "rule_set": "geosite-google",
+        "server": "dns_fakeip"
+      },
+      {
+        "rule_set": "geosite-youtube",
+        "server": "dns_fakeip"
+      },
+      {
+        "rule_set": "geosite-twitter",
+        "server": "dns_fakeip"
+      },
+      {
+        "rule_set": "geosite-facebook",
+        "server": "dns_fakeip"
+      },
+      {
+        "rule_set": "geosite-instagram",
+        "server": "dns_fakeip"
+      },
+      {
+        "rule_set": "geosite-telegram",
+        "server": "dns_fakeip"
+      },
+      {
+        "rule_set": "geosite-discord",
+        "server": "dns_fakeip"
+      },
+      {
+        "rule_set": "geosite-openai",
+        "server": "dns_fakeip"
+      },
+      {
+        "rule_set": "geosite-anthropic",
+        "server": "dns_fakeip"
+      },
+      {
+        "rule_set": "geosite-xai",
+        "server": "dns_fakeip"
+      },
+      {
+        "rule_set": "geosite-category-ai-chat-!cn",
+        "server": "dns_fakeip"
+      },
+      {
         "rule_set": "geosite-cn",
         "server": "dns_local"
       },
@@ -42,7 +185,6 @@
         "172.19.0.1/30"
       ],
       "auto_route": true,
-      "strict_route": true,
       "stack": "system"
     }
   ],
@@ -61,9 +203,8 @@
       "outbounds": [
         "AUTO-Test",
         "direct",
-        "\ud83c\udded\ud83c\uddf0 \u9999\u6e2f-01-IEPL",
-        "\ud83c\uddf8\ud83c\uddec \u65b0\u52a0\u5761-02-BGP",
-        "\ud83c\uddef\ud83c\uddf5 \u65e5\u672c-03-CN2"
+        "🇭🇰 香港-01-IEPL",
+        "🇸🇬 新加坡-02-BGP"
       ],
       "default": "AUTO-Test"
     },
@@ -74,14 +215,13 @@
       "interval": "3m",
       "tolerance": 50,
       "outbounds": [
-        "\ud83c\udded\ud83c\uddf0 \u9999\u6e2f-01-IEPL",
-        "\ud83c\uddf8\ud83c\uddec \u65b0\u52a0\u5761-02-BGP",
-        "\ud83c\uddef\ud83c\uddf5 \u65e5\u672c-03-CN2"
+        "🇭🇰 香港-01-IEPL",
+        "🇸🇬 新加坡-02-BGP"
       ]
     },
     {
       "type": "trojan",
-      "tag": "\ud83c\udded\ud83c\uddf0 \u9999\u6e2f-01-IEPL",
+      "tag": "🇭🇰 香港-01-IEPL",
       "server": "hk01.node.com",
       "server_port": 443,
       "password": "secret_password",
@@ -92,7 +232,7 @@
     },
     {
       "type": "vless",
-      "tag": "\ud83c\uddf8\ud83c\uddec \u65b0\u52a0\u5761-02-BGP",
+      "tag": "🇸🇬 新加坡-02-BGP",
       "server": "sg02.node.com",
       "server_port": 443,
       "uuid": "11111111-2222-3333-4444-555555555555",
@@ -110,26 +250,6 @@
         }
       },
       "packet_encoding": "xudp"
-    },
-    {
-      "type": "vmess",
-      "tag": "\ud83c\uddef\ud83c\uddf5 \u65e5\u672c-03-CN2",
-      "server": "jp03.node.com",
-      "server_port": 443,
-      "uuid": "22222222-3333-4444-5555-666666666666",
-      "alter_id": 0,
-      "security": "auto",
-      "tls": {
-        "enabled": true,
-        "server_name": "jp03.node.com"
-      },
-      "transport": {
-        "type": "ws",
-        "path": "/ws",
-        "headers": {
-          "Host": "jp03.node.com"
-        }
-      }
     }
   ],
   "route": {
@@ -149,12 +269,160 @@
         "action": "hijack-dns"
       },
       {
+        "port": 443,
+        "network": "udp",
+        "outbound": "block"
+      },
+      {
         "rule_set": "geosite-category-ads-all",
         "outbound": "block"
       },
       {
         "ip_is_private": true,
         "outbound": "direct"
+      },
+      {
+        "package_name": [
+          "com.android.vending",
+          "com.google.android.gms",
+          "com.google.android.gsf",
+          "com.google.android.youtube",
+          "com.google.android.apps.youtube.music",
+          "com.google.android.googlequicksearchbox",
+          "com.android.chrome",
+          "com.google.android.gm",
+          "com.google.android.apps.maps",
+          "com.google.android.apps.photos",
+          "com.google.android.apps.docs"
+        ],
+        "outbound": "AUTO-Test"
+      },
+      {
+        "domain_suffix": [
+          ".google.com",
+          ".googleapis.com",
+          ".google.com.hk",
+          ".goog",
+          ".gstatic.com",
+          ".googleusercontent.com",
+          ".gvt1.com",
+          ".gvt2.com",
+          ".android.com",
+          ".youtube.com",
+          ".googlevideo.com",
+          ".ytimg.com",
+          ".ggpht.com",
+          ".youtu.be"
+        ],
+        "outbound": "AUTO-Test"
+      },
+      {
+        "package_name": [
+          "com.twitter.android",
+          "com.instagram.android",
+          "org.telegram.messenger",
+          "org.thunderdog.challegram",
+          "com.facebook.katana",
+          "com.facebook.orca",
+          "com.whatsapp",
+          "com.discord",
+          "com.instagram.barcelona",
+          "com.reddit.frontpage"
+        ],
+        "outbound": "AUTO-Test"
+      },
+      {
+        "domain_suffix": [
+          ".x.com",
+          ".twitter.com",
+          ".t.co",
+          ".twimg.com",
+          ".facebook.com",
+          ".fbcdn.net",
+          ".instagram.com",
+          ".cdninstagram.com",
+          ".threads.net",
+          ".t.me",
+          ".telegram.org",
+          ".whatsapp.com",
+          ".whatsapp.net",
+          ".discord.com",
+          ".discordapp.com",
+          ".reddit.com",
+          ".redd.it"
+        ],
+        "outbound": "AUTO-Test"
+      },
+      {
+        "package_name": [
+          "com.openai.chatgpt",
+          "com.anthropic.claude",
+          "com.google.android.apps.bard",
+          "com.microsoft.copilot",
+          "ai.perplexity.app.android"
+        ],
+        "outbound": "AUTO-Test"
+      },
+      {
+        "domain_suffix": [
+          ".openai.com",
+          ".chatgpt.com",
+          ".oaistatic.com",
+          ".oaiusercontent.com",
+          ".anthropic.com",
+          ".claude.ai",
+          ".bard.google.com",
+          ".gemini.google.com",
+          ".x.ai",
+          ".grok.com",
+          ".copilot.microsoft.com",
+          ".perplexity.ai"
+        ],
+        "outbound": "AUTO-Test"
+      },
+      {
+        "rule_set": "geosite-google",
+        "outbound": "AUTO-Test"
+      },
+      {
+        "rule_set": "geosite-youtube",
+        "outbound": "AUTO-Test"
+      },
+      {
+        "rule_set": "geosite-twitter",
+        "outbound": "AUTO-Test"
+      },
+      {
+        "rule_set": "geosite-facebook",
+        "outbound": "AUTO-Test"
+      },
+      {
+        "rule_set": "geosite-instagram",
+        "outbound": "AUTO-Test"
+      },
+      {
+        "rule_set": "geosite-telegram",
+        "outbound": "AUTO-Test"
+      },
+      {
+        "rule_set": "geosite-discord",
+        "outbound": "AUTO-Test"
+      },
+      {
+        "rule_set": "geosite-openai",
+        "outbound": "AUTO-Test"
+      },
+      {
+        "rule_set": "geosite-anthropic",
+        "outbound": "AUTO-Test"
+      },
+      {
+        "rule_set": "geosite-xai",
+        "outbound": "AUTO-Test"
+      },
+      {
+        "rule_set": "geosite-category-ai-chat-!cn",
+        "outbound": "AUTO-Test"
       },
       {
         "rule_set": "geosite-cn",
@@ -173,6 +441,102 @@
       }
     ],
     "rule_set": [
+      {
+        "tag": "geosite-category-ads-all",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs",
+        "http_client": "proxy",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "geosite-google",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-google.srs",
+        "http_client": "proxy",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "geosite-youtube",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-youtube.srs",
+        "http_client": "proxy",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "geosite-twitter",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-twitter.srs",
+        "http_client": "proxy",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "geosite-facebook",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-facebook.srs",
+        "http_client": "proxy",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "geosite-instagram",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-instagram.srs",
+        "http_client": "proxy",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "geosite-telegram",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-telegram.srs",
+        "http_client": "proxy",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "geosite-discord",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-discord.srs",
+        "http_client": "proxy",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "geosite-openai",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-openai.srs",
+        "http_client": "proxy",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "geosite-anthropic",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-anthropic.srs",
+        "http_client": "proxy",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "geosite-xai",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-xai.srs",
+        "http_client": "proxy",
+        "update_interval": "1d"
+      },
+      {
+        "tag": "geosite-category-ai-chat-!cn",
+        "type": "remote",
+        "format": "binary",
+        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ai-chat-!cn.srs",
+        "http_client": "proxy",
+        "update_interval": "1d"
+      },
       {
         "tag": "geosite-cn",
         "type": "remote",
@@ -195,14 +559,6 @@
         "format": "binary",
         "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs",
         "http_client": "direct",
-        "update_interval": "1d"
-      },
-      {
-        "tag": "geosite-category-ads-all",
-        "type": "remote",
-        "format": "binary",
-        "url": "https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set/geosite-category-ads-all.srs",
-        "http_client": "proxy",
         "update_interval": "1d"
       }
     ],

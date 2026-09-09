@@ -85,15 +85,61 @@ class SimpleConfigViewModel(
         mode: String = _currentConfig.value.route.mode,
         blockAds: Boolean = _currentConfig.value.route.block_ads,
         bypassLan: Boolean = _currentConfig.value.route.bypass_lan,
-        defaultOutbound: String = _currentConfig.value.route.default_outbound
+        blockQuic: Boolean = _currentConfig.value.route.isBlockQuic,
+        defaultOutbound: String = _currentConfig.value.route.default_outbound,
+        routeGoogle: Boolean = _currentConfig.value.route.isRouteGoogle,
+        googleOutbound: String = _currentConfig.value.route.googleOutbound,
+        routeSocial: Boolean = _currentConfig.value.route.isRouteSocial,
+        socialOutbound: String = _currentConfig.value.route.socialOutbound,
+        routeAi: Boolean = _currentConfig.value.route.isRouteAi,
+        aiOutbound: String = _currentConfig.value.route.aiOutbound
     ) {
         val updatedRoute = _currentConfig.value.route.copy(
             mode = mode,
             block_ads = blockAds,
             bypass_lan = bypassLan,
-            default_outbound = defaultOutbound
+            block_quic = blockQuic,
+            default_outbound = defaultOutbound,
+            route_google = routeGoogle,
+            google_outbound = googleOutbound,
+            route_social = routeSocial,
+            social_outbound = socialOutbound,
+            route_ai = routeAi,
+            ai_outbound = aiOutbound
         )
         _currentConfig.value = _currentConfig.value.copy(route = updatedRoute)
+    }
+
+    fun enableAllRecommended() {
+        val currentRoute = _currentConfig.value.route
+        val updatedRoute = currentRoute.copy(
+            block_ads = true,
+            bypass_lan = true,
+            block_quic = true,
+            route_google = true,
+            route_social = true,
+            route_ai = true
+        )
+        _currentConfig.value = _currentConfig.value.copy(route = updatedRoute)
+        _message.value = "已一键开启全部推荐规则 (Google/社交/AI/阻断QUIC)"
+    }
+
+    fun forceAllProxy() {
+        val currentRoute = _currentConfig.value.route
+        val updatedRoute = currentRoute.copy(
+            mode = "smart",
+            block_ads = true,
+            bypass_lan = true,
+            block_quic = true,
+            route_google = true,
+            google_outbound = "proxy",
+            route_social = true,
+            social_outbound = "proxy",
+            route_ai = true,
+            ai_outbound = "proxy"
+        )
+        _currentConfig.value = _currentConfig.value.copy(route = updatedRoute)
+        _message.value = "已强制将 Google、社交与 AI 路由至代理出站"
     }
 
     fun updateLog(

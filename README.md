@@ -133,5 +133,5 @@ app/
 - `dns` (`dns_local` 223.5.5.5 + `dns_fakeip` 198.18.0.0/15 + 广告拦截 + 域名分流)
 - `inbounds` (`tun-in` 172.19.0.1/30 auto_route)
 - `outbounds` (`direct`, `block`, `proxy` 策略组, `AUTO-Test` urltest 自动优选, 节点列表)
-- `route` (sniff, hijack-dns, 规则集 geosite-cn, geosite-geolocation-!cn, geoip-cn 等)
+- `route` (sniff, hijack-dns, QUIC 拦截, Google Play/GMS 包名与 geosite-google 专项代理, 规则集 geosite-cn, geosite-geolocation-!cn, geoip-cn 等)
 - `experimental`

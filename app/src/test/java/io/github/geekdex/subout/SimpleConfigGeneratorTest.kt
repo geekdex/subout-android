@@ -2,12 +2,14 @@ package io.github.geekdex.subout
 
 import io.github.geekdex.subout.data.db.entities.Node
 import io.github.geekdex.subout.domain.generator.SimpleConfigGenerator
+import io.github.geekdex.subout.domain.model.AppRulePresets
 import io.github.geekdex.subout.domain.model.SimpleConfig
 import io.github.geekdex.subout.domain.model.SimpleDnsConfig
 import io.github.geekdex.subout.domain.model.SimpleInboundConfig
 import io.github.geekdex.subout.domain.model.SimpleRouteConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -42,7 +44,7 @@ class SimpleConfigGeneratorTest {
         // DNS does not contain deprecated independent_cache
         val dns = json.getAsJsonObject("dns")
         assertEquals("ipv4_only", dns.get("strategy").asString)
-        org.junit.Assert.assertNull(dns.get("independent_cache"))
+        assertNull(dns.get("independent_cache"))
 
         // Top-level http_clients is configured
         val httpClients = json.getAsJsonArray("http_clients")
@@ -74,7 +76,7 @@ class SimpleConfigGeneratorTest {
         ruleSets.forEach { rs ->
             val obj = rs.asJsonObject
             assertNotNull("rule_set should have http_client", obj.get("http_client"))
-            org.junit.Assert.assertNull("rule_set should not have deprecated download_detour", obj.get("download_detour"))
+            assertNull("rule_set should not have deprecated download_detour", obj.get("download_detour"))
         }
     }
 
@@ -96,6 +98,127 @@ class SimpleConfigGeneratorTest {
         val dns = json.getAsJsonObject("dns")
         val servers = dns.getAsJsonArray("servers")
         assertTrue(servers.any { it.asJsonObject.get("tag").asString == "dns_remote" })
+    }
+
+    @Test
+    fun testGoogleSocialAiPresetsAndQuicBlocking() {
+        val cfg = SimpleConfig(route = SimpleRouteConfig(mode = "smart"))
+        val dummyNodes = listOf(
+            Node(
+                id = 1,
+                subscriptionId = 1,
+                tag = "Node-01",
+                protocol = "trojan",
+                server = "node.com",
+                serverPort = 443,
+                rawJson = """{"type":"trojan","tag":"Node-01","server":"node.com","server_port":443,"password":"pwd"}""",
+                enabled = true
+            )
+        )
+
+        val json = SimpleConfigGenerator.generate(cfg, dummyNodes)
+        val route = json.getAsJsonObject("route")
+        val rules = route.getAsJsonArray("rules")
+        val ruleSets = route.getAsJsonArray("rule_set")
+
+        // 1. Verify QUIC (UDP 443) blocking rule exists
+        val quicBlockRule = rules.firstOrNull {
+            it.asJsonObject.get("port")?.asInt == 443 &&
+                    it.asJsonObject.get("network")?.asString == "udp" &&
+                    it.asJsonObject.get("outbound")?.asString == "block"
+        }
+        assertNotNull("QUIC UDP 443 block rule must exist to prevent Google Play timeouts", quicBlockRule)
+
+        // 2. Verify Google, Social, and AI package_name rules exist
+        val googlePkgRule = rules.firstOrNull {
+            val pkgs = it.asJsonObject.getAsJsonArray("package_name")
+            pkgs != null && pkgs.any { p -> p.asString == "com.android.vending" }
+        }
+        assertNotNull("Google Play package_name rule must exist", googlePkgRule)
+
+        val socialPkgRule = rules.firstOrNull {
+            val pkgs = it.asJsonObject.getAsJsonArray("package_name")
+            pkgs != null && pkgs.any { p -> p.asString == "com.twitter.android" }
+        }
+        assertNotNull("Social package_name rule must exist", socialPkgRule)
+
+        val aiPkgRule = rules.firstOrNull {
+            val pkgs = it.asJsonObject.getAsJsonArray("package_name")
+            pkgs != null && pkgs.any { p -> p.asString == "com.openai.chatgpt" }
+        }
+        assertNotNull("AI package_name rule must exist", aiPkgRule)
+
+        // 3. Verify rule sets for Google, Social, AI
+        assertTrue("rule_set must include geosite-google", ruleSets.any { it.asJsonObject.get("tag")?.asString == "geosite-google" })
+        assertTrue("rule_set must include geosite-youtube", ruleSets.any { it.asJsonObject.get("tag")?.asString == "geosite-youtube" })
+        assertTrue("rule_set must include geosite-twitter", ruleSets.any { it.asJsonObject.get("tag")?.asString == "geosite-twitter" })
+        assertTrue("rule_set must include geosite-openai", ruleSets.any { it.asJsonObject.get("tag")?.asString == "geosite-openai" })
+        assertTrue("rule_set must include geosite-category-ai-chat-!cn", ruleSets.any { it.asJsonObject.get("tag")?.asString == "geosite-category-ai-chat-!cn" })
+
+        // 4. Verify geosite-google and geosite-youtube rules appear BEFORE geosite-cn in route rules
+        val googleRuleIndex = rules.indexOfFirst { it.asJsonObject.get("rule_set")?.asString == "geosite-google" }
+        val youtubeRuleIndex = rules.indexOfFirst { it.asJsonObject.get("rule_set")?.asString == "geosite-youtube" }
+        val cnRuleIndex = rules.indexOfFirst { it.asJsonObject.get("rule_set")?.asString == "geosite-cn" }
+        assertTrue(googleRuleIndex != -1)
+        assertTrue(youtubeRuleIndex != -1)
+        assertTrue(cnRuleIndex != -1)
+        assertTrue("geosite-google must precede geosite-cn in route rules", googleRuleIndex < cnRuleIndex)
+        assertTrue("geosite-youtube must precede geosite-cn in route rules", youtubeRuleIndex < cnRuleIndex)
+    }
+
+    @Test
+    fun testCustomOutboundAndToggling() {
+        val cfg = SimpleConfig(
+            route = SimpleRouteConfig(
+                mode = "smart",
+                block_quic = false,
+                route_google = true,
+                google_outbound = "HK-01",
+                route_social = false,
+                route_ai = true,
+                ai_outbound = "US-01"
+            )
+        )
+        val dummyNodes = listOf(
+            Node(id = 1, subscriptionId = 1, tag = "HK-01", protocol = "trojan", server = "hk.com", serverPort = 443, rawJson = "{}", enabled = true),
+            Node(id = 2, subscriptionId = 1, tag = "US-01", protocol = "vless", server = "us.com", serverPort = 443, rawJson = "{}", enabled = true)
+        )
+
+        val json = SimpleConfigGenerator.generate(cfg, dummyNodes)
+        val route = json.getAsJsonObject("route")
+        val rules = route.getAsJsonArray("rules")
+        val ruleSets = route.getAsJsonArray("rule_set")
+
+        // QUIC blocked is false -> no block rule
+        val quicBlockRule = rules.firstOrNull {
+            it.asJsonObject.get("port")?.asInt == 443 &&
+                    it.asJsonObject.get("network")?.asString == "udp" &&
+                    it.asJsonObject.get("outbound")?.asString == "block"
+        }
+        assertNull("QUIC block rule should NOT exist when block_quic is false", quicBlockRule)
+
+        // Google outbound is HK-01
+        val googlePkgRule = rules.firstOrNull {
+            val pkgs = it.asJsonObject.getAsJsonArray("package_name")
+            pkgs != null && pkgs.any { p -> p.asString == "com.android.vending" }
+        }
+        assertNotNull(googlePkgRule)
+        assertEquals("HK-01", googlePkgRule!!.asJsonObject.get("outbound").asString)
+
+        // Social was disabled -> no twitter rules
+        val socialPkgRule = rules.firstOrNull {
+            val pkgs = it.asJsonObject.getAsJsonArray("package_name")
+            pkgs != null && pkgs.any { p -> p.asString == "com.twitter.android" }
+        }
+        assertNull("Social rules should not exist when route_social is false", socialPkgRule)
+
+        // AI outbound is US-01
+        val aiPkgRule = rules.firstOrNull {
+            val pkgs = it.asJsonObject.getAsJsonArray("package_name")
+            pkgs != null && pkgs.any { p -> p.asString == "com.openai.chatgpt" }
+        }
+        assertNotNull(aiPkgRule)
+        assertEquals("US-01", aiPkgRule!!.asJsonObject.get("outbound").asString)
     }
 
     @Test
@@ -121,16 +244,6 @@ class SimpleConfigGeneratorTest {
                 serverPort = 443,
                 rawJson = """{"type":"vless","tag":"🇸🇬 新加坡-02-BGP","server":"sg02.node.com","server_port":443,"uuid":"11111111-2222-3333-4444-555555555555","flow":"xtls-rprx-vision","tls":{"enabled":true,"server_name":"sg02.node.com","reality":{"enabled":true,"public_key":"MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA"},"utls":{"enabled":true,"fingerprint":"chrome"}},"packet_encoding":"xudp"}""",
                 enabled = true
-            ),
-            Node(
-                id = 3,
-                subscriptionId = 1,
-                tag = "🇯🇵 日本-03-CN2",
-                protocol = "vmess",
-                server = "jp03.node.com",
-                serverPort = 443,
-                rawJson = """{"type":"vmess","tag":"🇯🇵 日本-03-CN2","server":"jp03.node.com","server_port":443,"uuid":"22222222-3333-4444-5555-666666666666","alter_id":0,"security":"auto","tls":{"enabled":true,"server_name":"jp03.node.com"},"transport":{"type":"ws","path":"/ws","headers":{"Host":"jp03.node.com"}}}""",
-                enabled = true
             )
         )
 
@@ -140,5 +253,9 @@ class SimpleConfigGeneratorTest {
         val targetFile = java.io.File(buildDir, "example-sing-box.json")
         targetFile.writeText(prettyJson)
         assertTrue(targetFile.exists())
+
+        // Also update root example-sing-box.json for documentation
+        val rootExample = listOf(java.io.File("example-sing-box.json"), java.io.File("../example-sing-box.json")).firstOrNull { it.exists() }
+        rootExample?.writeText(prettyJson)
     }
 }
