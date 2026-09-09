@@ -186,6 +186,18 @@ object SimpleConfigGenerator {
             }
         }
 
+        // Custom App Groups DNS rules
+        val enabledCustomGroups = routeConfig.customGroups.filter { it.isEnabled && it.packageNames.isNotEmpty() }
+        for (group in enabledCustomGroups) {
+            val dnsServer = if (group.outboundTag == "direct" || group.outboundTag == "block" || !hasNodes) "dns_local" else remoteDnsTag
+            val pkgArr = JsonArray()
+            group.packageNames.forEach { pkgArr.add(it) }
+            rules.add(JsonObject().apply {
+                add("package_name", pkgArr)
+                addProperty("server", dnsServer)
+            })
+        }
+
         when (routeConfig.mode) {
             "smart" -> {
                 if (routeConfig.isRouteGoogle) {
@@ -483,16 +495,29 @@ object SimpleConfigGenerator {
             })
         }
 
-        fun resolvePresetOutbound(customOutbound: String): String {
+        fun resolveOutbound(customOutbound: String): String {
             return when {
-                customOutbound.isNotBlank() && (proxyNodeTags.contains(customOutbound) || listOf("proxy", "AUTO-Test", "direct").contains(customOutbound)) -> customOutbound
-                else -> targetProxy
+                customOutbound.isNotBlank() && (proxyNodeTags.contains(customOutbound) || listOf("proxy", "AUTO-Test", "direct", "block").contains(customOutbound)) -> customOutbound
+                hasNodes -> targetProxy
+                else -> "direct"
             }
         }
 
-        val googleTarget = resolvePresetOutbound(routeConfig.googleOutbound)
-        val socialTarget = resolvePresetOutbound(routeConfig.socialOutbound)
-        val aiTarget = resolvePresetOutbound(routeConfig.aiOutbound)
+        val googleTarget = resolveOutbound(routeConfig.googleOutbound)
+        val socialTarget = resolveOutbound(routeConfig.socialOutbound)
+        val aiTarget = resolveOutbound(routeConfig.aiOutbound)
+
+        // Custom App Groups routing (Strict app-level rules placed before general rules)
+        val enabledCustomGroups = routeConfig.customGroups.filter { it.isEnabled && it.packageNames.isNotEmpty() }
+        for (group in enabledCustomGroups) {
+            val groupTarget = resolveOutbound(group.outboundTag)
+            val pkgArr = JsonArray()
+            group.packageNames.forEach { pkgArr.add(it) }
+            rules.add(JsonObject().apply {
+                add("package_name", pkgArr)
+                addProperty("outbound", groupTarget)
+            })
+        }
 
         if (hasNodes) {
             // Dedicated package name & domain suffix routing for enabled presets

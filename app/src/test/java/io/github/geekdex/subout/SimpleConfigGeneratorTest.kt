@@ -222,6 +222,82 @@ class SimpleConfigGeneratorTest {
     }
 
     @Test
+    fun testCustomAppGroupsRouting() {
+        val groupDirect = io.github.geekdex.subout.domain.model.CustomAppGroup(
+            name = "直连应用组",
+            outbound = "direct",
+            package_names = listOf("com.tencent.mm", "com.eg.android.AlipayGphone"),
+            enabled = true
+        )
+        val groupNode = io.github.geekdex.subout.domain.model.CustomAppGroup(
+            name = "香港专线",
+            outbound = "HK-01",
+            package_names = listOf("com.netflix.mediaclient"),
+            enabled = true
+        )
+        val groupDisabled = io.github.geekdex.subout.domain.model.CustomAppGroup(
+            name = "禁用分组",
+            outbound = "direct",
+            package_names = listOf("com.example.unused"),
+            enabled = false
+        )
+
+        val cfg = SimpleConfig(
+            route = SimpleRouteConfig(
+                mode = "smart",
+                custom_groups = listOf(groupDirect, groupNode, groupDisabled)
+            )
+        )
+
+        val dummyNodes = listOf(
+            Node(1, 1, "HK-01", "shadowsocks", "1.1.1.1", 443, "{}", true),
+            Node(2, 1, "US-01", "shadowsocks", "2.2.2.2", 443, "{}", true)
+        )
+
+        val json = SimpleConfigGenerator.generate(cfg, dummyNodes)
+        val routeRules = json.getAsJsonObject("route").getAsJsonArray("rules")
+
+        // 1. Direct group
+        val directRule = routeRules.firstOrNull {
+            val pkgs = it.asJsonObject.getAsJsonArray("package_name")
+            pkgs != null && pkgs.any { p -> p.asString == "com.tencent.mm" }
+        }
+        assertNotNull(directRule)
+        assertEquals("direct", directRule!!.asJsonObject.get("outbound").asString)
+
+        // 2. HK-01 group
+        val hkRule = routeRules.firstOrNull {
+            val pkgs = it.asJsonObject.getAsJsonArray("package_name")
+            pkgs != null && pkgs.any { p -> p.asString == "com.netflix.mediaclient" }
+        }
+        assertNotNull(hkRule)
+        assertEquals("HK-01", hkRule!!.asJsonObject.get("outbound").asString)
+
+        // 3. Disabled group
+        val disabledRule = routeRules.firstOrNull {
+            val pkgs = it.asJsonObject.getAsJsonArray("package_name")
+            pkgs != null && pkgs.any { p -> p.asString == "com.example.unused" }
+        }
+        assertNull("Disabled custom group should not produce rules", disabledRule)
+
+        // 4. DNS rules check
+        val dnsRules = json.getAsJsonObject("dns").getAsJsonArray("rules")
+        val directDns = dnsRules.firstOrNull {
+            val pkgs = it.asJsonObject.getAsJsonArray("package_name")
+            pkgs != null && pkgs.any { p -> p.asString == "com.tencent.mm" }
+        }
+        assertNotNull(directDns)
+        assertEquals("dns_local", directDns!!.asJsonObject.get("server").asString)
+
+        val hkDns = dnsRules.firstOrNull {
+            val pkgs = it.asJsonObject.getAsJsonArray("package_name")
+            pkgs != null && pkgs.any { p -> p.asString == "com.netflix.mediaclient" }
+        }
+        assertNotNull(hkDns)
+        assertEquals("dns_fakeip", hkDns!!.asJsonObject.get("server").asString)
+    }
+
+    @Test
     fun testDumpExampleConfigFile() {
         val cfg = SimpleConfig()
         val dummyNodes = listOf(

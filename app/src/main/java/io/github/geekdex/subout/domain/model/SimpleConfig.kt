@@ -36,7 +36,10 @@ data class SimpleRouteConfig(
     val social_outbound: String? = "",
 
     val route_ai: Boolean? = true, // 热门 AI 应用 (ChatGPT, Claude, Gemini, Grok, Copilot 等)
-    val ai_outbound: String? = ""
+    val ai_outbound: String? = "",
+
+    // 自定义应用分组 (一个应用仅属于一个分组，互斥去重)
+    val custom_groups: List<CustomAppGroup>? = emptyList()
 ) {
     val isBlockQuic: Boolean get() = block_quic ?: true
     val isRouteGoogle: Boolean get() = route_google ?: true
@@ -45,6 +48,19 @@ data class SimpleRouteConfig(
     val googleOutbound: String get() = google_outbound ?: ""
     val socialOutbound: String get() = social_outbound ?: ""
     val aiOutbound: String get() = ai_outbound ?: ""
+    val customGroups: List<CustomAppGroup> get() = custom_groups ?: emptyList()
+}
+
+data class CustomAppGroup(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val name: String = "自定义分组",
+    val outbound: String? = "", // 留空则跟从 default_outbound / proxy
+    val package_names: List<String>? = emptyList(),
+    val enabled: Boolean? = true
+) {
+    val outboundTag: String get() = outbound ?: ""
+    val packageNames: List<String> get() = package_names ?: emptyList()
+    val isEnabled: Boolean get() = enabled ?: true
 }
 
 data class SimpleConfig(

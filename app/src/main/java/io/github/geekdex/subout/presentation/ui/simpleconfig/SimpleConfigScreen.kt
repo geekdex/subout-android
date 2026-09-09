@@ -15,17 +15,23 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AltRoute
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Input
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -33,15 +39,19 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -54,8 +64,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.geekdex.subout.domain.model.AppRulePresets
+import io.github.geekdex.subout.domain.model.CustomAppGroup
+import io.github.geekdex.subout.domain.model.InstalledAppInfo
 import io.github.geekdex.subout.domain.model.PresetCategory
 import io.github.geekdex.subout.presentation.viewmodel.SimpleConfigViewModel
 
@@ -69,10 +82,102 @@ fun SimpleConfigScreen(
     val config = uiState.config
     val snackbarHostState = remember { SnackbarHostState() }
 
+    var showAddGroupDialog by remember { mutableStateOf(false) }
+    var newGroupName by remember { mutableStateOf("") }
+    var groupToRename by remember { mutableStateOf<CustomAppGroup?>(null) }
+    var renameGroupName by remember { mutableStateOf("") }
+    var activePickingGroupId by remember { mutableStateOf<String?>(null) }
+
     LaunchedEffect(uiState.message) {
         uiState.message?.let {
             snackbarHostState.showSnackbar(it)
             viewModel.clearMessage()
+        }
+    }
+
+    // Add Group Dialog
+    if (showAddGroupDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddGroupDialog = false },
+            title = { Text("新建应用分流分组") },
+            text = {
+                OutlinedTextField(
+                    value = newGroupName,
+                    onValueChange = { newGroupName = it },
+                    label = { Text("分组名称") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.addCustomGroup(newGroupName)
+                        showAddGroupDialog = false
+                    }
+                ) {
+                    Text("创建")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddGroupDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    // Rename Group Dialog
+    groupToRename?.let { group ->
+        AlertDialog(
+            onDismissRequest = { groupToRename = null },
+            title = { Text("重命名分组") },
+            text = {
+                OutlinedTextField(
+                    value = renameGroupName,
+                    onValueChange = { renameGroupName = it },
+                    label = { Text("分组名称") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.updateCustomGroupName(group.id, renameGroupName)
+                        groupToRename = null
+                    }
+                ) {
+                    Text("保存")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { groupToRename = null }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    // App Picker BottomSheet
+    activePickingGroupId?.let { groupId ->
+        val group = config.route.customGroups.find { it.id == groupId }
+        if (group != null) {
+            val occupiedMap = remember(config.route, groupId) {
+                viewModel.getOccupiedAppMap(excludeGroupId = groupId)
+            }
+            AppPickerSheet(
+                groupName = group.name,
+                initialSelected = group.packageNames,
+                installedApps = uiState.installedApps,
+                isLoadingApps = uiState.isLoadingApps,
+                occupiedMap = occupiedMap,
+                onDismiss = { activePickingGroupId = null },
+                onConfirm = { selectedList ->
+                    viewModel.updateCustomGroupPackages(groupId, selectedList)
+                    activePickingGroupId = null
+                }
+            )
         }
     }
 
@@ -470,7 +575,85 @@ fun SimpleConfigScreen(
                 }
             }
 
-            // 5. Log Section
+            // 5. Custom App Groups Section
+            ConfigSectionCard(
+                title = "自定义应用分流分组",
+                icon = Icons.Default.Category
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "手动选择手机应用到分组，自定义走哪个流量",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                        Text(
+                            text = "严格互斥：一个应用只能归属一个组，无冗余冲突",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    FilledTonalButton(
+                        onClick = {
+                            newGroupName = "自定义分组 ${config.route.customGroups.size + 1}"
+                            showAddGroupDialog = true
+                        }
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("添加分组")
+                    }
+                }
+
+                if (config.route.customGroups.isEmpty()) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "暂无自定义分组",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "点击上方“添加分组”，可将特定应用指定走独立节点、直连或拦截",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                    }
+                } else {
+                    config.route.customGroups.forEach { group ->
+                        CustomAppGroupItem(
+                            group = group,
+                            installedApps = uiState.installedApps,
+                            availableOutbounds = uiState.availableOutbounds,
+                            onRename = {
+                                renameGroupName = group.name
+                                groupToRename = group
+                            },
+                            onDelete = { viewModel.deleteCustomGroup(group.id) },
+                            onEnabledChange = { viewModel.updateCustomGroupEnabled(group.id, it) },
+                            onOutboundChange = { viewModel.updateCustomGroupOutbound(group.id, it) },
+                            onManageApps = { activePickingGroupId = group.id }
+                        )
+                    }
+                }
+            }
+
+            // 6. Log Section
             ConfigSectionCard(
                 title = "日志配置",
                 icon = Icons.Default.Article
@@ -725,3 +908,197 @@ fun ConfigSectionCard(
         }
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CustomAppGroupItem(
+    group: CustomAppGroup,
+    installedApps: List<InstalledAppInfo>,
+    availableOutbounds: List<String>,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+    onEnabledChange: (Boolean) -> Unit,
+    onOutboundChange: (String) -> Unit,
+    onManageApps: () -> Unit
+) {
+    var outboundMenuExpanded by remember { mutableStateOf(false) }
+    val displayOutbound = when {
+        group.outboundTag.isBlank() -> "默认跟随主代理 (推荐)"
+        group.outboundTag == "direct" -> "直连 (direct)"
+        group.outboundTag == "block" -> "拦截 (block)"
+        else -> group.outboundTag
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Row 1: Name, Rename, Switch, Delete
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = group.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    IconButton(onClick = onRename, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            Icons.Default.Edit,
+                            contentDescription = "重命名",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = group.isEnabled,
+                        onCheckedChange = onEnabledChange
+                    )
+                    IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "删除分组",
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+
+            if (group.isEnabled) {
+                // Outbound selector
+                ExposedDropdownMenuBox(
+                    expanded = outboundMenuExpanded,
+                    onExpandedChange = { outboundMenuExpanded = !outboundMenuExpanded }
+                ) {
+                    OutlinedTextField(
+                        value = displayOutbound,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("分流走向 (走哪个流量)") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = outboundMenuExpanded) },
+                        modifier = Modifier
+                            .menuAnchor()
+                            .fillMaxWidth()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = outboundMenuExpanded,
+                        onDismissRequest = { outboundMenuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("默认跟随主代理 (推荐)") },
+                            onClick = {
+                                onOutboundChange("")
+                                outboundMenuExpanded = false
+                            }
+                        )
+                        availableOutbounds.forEach { outbound ->
+                            val label = when (outbound) {
+                                "direct" -> "直连 (direct - 不走代理)"
+                                "block" -> "拦截 (block - 禁止联网)"
+                                "proxy" -> "主代理策略 (proxy)"
+                                "AUTO-Test" -> "自动测速优选 (AUTO-Test)"
+                                else -> outbound
+                            }
+                            DropdownMenuItem(
+                                text = { Text(label) },
+                                onClick = {
+                                    onOutboundChange(outbound)
+                                    outboundMenuExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                // Selected Apps Chips Preview
+                val appNames = remember(group.packageNames, installedApps) {
+                    group.packageNames.map { pkg ->
+                        installedApps.find { it.packageName == pkg }?.name ?: pkg
+                    }
+                }
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "已包含 ${group.packageNames.size} 款应用:",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    if (appNames.isEmpty()) {
+                        Text(
+                            text = "尚未添加应用，点击下方按钮从手机应用中挑选",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            appNames.take(3).forEach { name ->
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        text = name,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                            if (appNames.size > 3) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        text = "+${appNames.size - 3} 更多",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = onManageApps,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("选择手机应用 (已选 ${group.packageNames.size} 款)")
+                    }
+                }
+            }
+        }
+    }
+}
+
