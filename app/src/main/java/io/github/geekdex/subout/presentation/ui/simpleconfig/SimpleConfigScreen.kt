@@ -15,11 +15,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.AltRoute
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.Article
+import androidx.compose.material.icons.automirrored.filled.Input
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AltRoute
 import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
@@ -30,7 +31,6 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FlashOn
-import androidx.compose.material.icons.filled.Input
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Tune
@@ -40,6 +40,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -312,7 +313,7 @@ fun SimpleConfigScreen(
                         label = { Text("DNS 模式") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dnsModeExpanded) },
                         modifier = Modifier
-                            .menuAnchor()
+                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                             .fillMaxWidth()
                     )
                     ExposedDropdownMenu(
@@ -354,12 +355,31 @@ fun SimpleConfigScreen(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text("抑制 HTTPS/SVCB 查询 (防 ECH 加密)", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "拦截 Type 65 查询以防浏览器加密 SNI 破坏分流嗅探，杜绝 FakeIP 报错与代理域名泄露",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                    Switch(
+                        checked = config.dns.isSuppressEch,
+                        onCheckedChange = { viewModel.updateDns(suppressEch = it) }
+                    )
+                }
             }
 
             // 2. Inbounds Section
             ConfigSectionCard(
                 title = "入站配置",
-                icon = Icons.Default.Input
+                icon = Icons.AutoMirrored.Filled.Input
             ) {
                 var inboundExpanded by remember { mutableStateOf(false) }
                 val inboundTypes = listOf(
@@ -378,7 +398,7 @@ fun SimpleConfigScreen(
                         label = { Text("入站类型") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = inboundExpanded) },
                         modifier = Modifier
-                            .menuAnchor()
+                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                             .fillMaxWidth()
                     )
                     ExposedDropdownMenu(
@@ -399,37 +419,48 @@ fun SimpleConfigScreen(
 
                 if (config.inbound.inbound_type == "tun") {
                     var stackExpanded by remember { mutableStateOf(false) }
-                    val stacks = listOf("system", "gvisor", "mixed")
+                    val stacks = listOf(
+                        Pair("mixed", "mixed (推荐，混合内核与虚拟栈，稳定低延迟)"),
+                        Pair("system", "system (纯系统原生栈，TCP极速，部分系统UDP不稳)"),
+                        Pair("gvisor", "gvisor (Google 虚拟网络栈，兼容性好，CPU略高)")
+                    )
 
                     ExposedDropdownMenuBox(
                         expanded = stackExpanded,
                         onExpandedChange = { stackExpanded = !stackExpanded }
                     ) {
                         OutlinedTextField(
-                            value = config.inbound.tun_stack,
+                            value = stacks.find { it.first == config.inbound.tun_stack }?.second ?: config.inbound.tun_stack,
                             onValueChange = {},
                             readOnly = true,
                             label = { Text("TUN 堆栈 (Stack)") },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = stackExpanded) },
                             modifier = Modifier
-                                .menuAnchor()
+                                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                                 .fillMaxWidth()
                         )
                         ExposedDropdownMenu(
                             expanded = stackExpanded,
                             onDismissRequest = { stackExpanded = false }
                         ) {
-                            stacks.forEach { stack ->
+                            stacks.forEach { (stackKey, stackDesc) ->
                                 DropdownMenuItem(
-                                    text = { Text(stack) },
+                                    text = { Text(stackDesc) },
                                     onClick = {
-                                        viewModel.updateInbound(tunStack = stack)
+                                        viewModel.updateInbound(tunStack = stackKey)
                                         stackExpanded = false
                                     }
                                 )
                             }
                         }
                     }
+
+                    Text(
+                        "提示：Android SFA 推荐首选 mixed 栈。TCP 走系统原生内核保障极速吞吐，UDP/DNS 走 gVisor 独立处理以杜绝权限受限与丢包。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.padding(horizontal = 4.dp)
+                    )
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -477,7 +508,7 @@ fun SimpleConfigScreen(
             // 3. Route Section
             ConfigSectionCard(
                 title = "路由基础配置",
-                icon = Icons.Default.AltRoute
+                icon = Icons.AutoMirrored.Filled.AltRoute
             ) {
                 var routeModeExpanded by remember { mutableStateOf(false) }
                 val routeModes = listOf(
@@ -498,7 +529,7 @@ fun SimpleConfigScreen(
                         label = { Text("路由模式") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = routeModeExpanded) },
                         modifier = Modifier
-                            .menuAnchor()
+                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                             .fillMaxWidth()
                     )
                     ExposedDropdownMenu(
@@ -529,7 +560,7 @@ fun SimpleConfigScreen(
                         label = { Text("默认出站 (Default Outbound)") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = defaultOutboundExpanded) },
                         modifier = Modifier
-                            .menuAnchor()
+                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                             .fillMaxWidth()
                     )
                     ExposedDropdownMenu(
@@ -820,7 +851,7 @@ fun SimpleConfigScreen(
             // 7. Log Section
             ConfigSectionCard(
                 title = "日志配置",
-                icon = Icons.Default.Article
+                icon = Icons.AutoMirrored.Filled.Article
             ) {
                 var logLevelExpanded by remember { mutableStateOf(false) }
                 val logLevels = listOf("trace", "debug", "info", "warn", "error")
@@ -836,7 +867,7 @@ fun SimpleConfigScreen(
                         label = { Text("日志级别") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = logLevelExpanded) },
                         modifier = Modifier
-                            .menuAnchor()
+                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                             .fillMaxWidth()
                     )
                     ExposedDropdownMenu(
@@ -978,7 +1009,7 @@ fun PresetAppRuleItem(
                         label = { Text("指定出站节点 / 策略") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = outboundMenuExpanded) },
                         modifier = Modifier
-                            .menuAnchor()
+                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                             .fillMaxWidth()
                     )
                     ExposedDropdownMenu(
@@ -1190,7 +1221,7 @@ fun CustomAppGroupItem(
                         label = { Text("分流走向 (走哪个流量)") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = outboundMenuExpanded) },
                         modifier = Modifier
-                            .menuAnchor()
+                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                             .fillMaxWidth()
                     )
                     ExposedDropdownMenu(
@@ -1382,7 +1413,7 @@ fun CustomDomainGroupItem(
                         label = { Text("分流走向 (走哪个流量)") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = outboundMenuExpanded) },
                         modifier = Modifier
-                            .menuAnchor()
+                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                             .fillMaxWidth()
                     )
                     ExposedDropdownMenu(

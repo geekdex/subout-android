@@ -56,10 +56,29 @@ class SimpleConfigGeneratorTest {
         val servers = dns.getAsJsonArray("servers")
         assertTrue(servers.any { it.asJsonObject.get("tag").asString == "dns_fakeip" })
 
-        // Default Inbound is TUN
+        // Verify DNS rules include HTTPS/SVCB predefined NOERROR and non-IP query diversion to dns_local
+        val dnsRules = dns.getAsJsonArray("rules")
+        val httpsRule = dnsRules.firstOrNull {
+            val qtypes = it.asJsonObject.getAsJsonArray("query_type")
+            qtypes != null && qtypes.any { qt -> qt.asString == "HTTPS" } &&
+                    it.asJsonObject.get("action")?.asString == "predefined" &&
+                    it.asJsonObject.get("rcode")?.asString == "NOERROR"
+        }
+        assertNotNull("HTTPS/SVCB query filter must exist to prevent fakeip non-IP query error and ECH", httpsRule)
+
+        val nonIpDivertRule = dnsRules.firstOrNull {
+            val qtypes = it.asJsonObject.getAsJsonArray("query_type")
+            qtypes != null && qtypes.any { qt -> qt.asString == "A" } &&
+                    it.asJsonObject.get("invert")?.asBoolean == true &&
+                    it.asJsonObject.get("server")?.asString == "dns_local"
+        }
+        assertNotNull("Non-IP query diversion rule must exist in FakeIP mode", nonIpDivertRule)
+
+        // Default Inbound is TUN with mixed stack
         val inbounds = json.getAsJsonArray("inbounds")
         assertEquals("tun", inbounds[0].asJsonObject.get("type").asString)
         assertEquals("tun-in", inbounds[0].asJsonObject.get("tag").asString)
+        assertEquals("mixed", inbounds[0].asJsonObject.get("stack").asString)
 
         // Outbounds contains selector and urltest
         val outbounds = json.getAsJsonArray("outbounds")
@@ -122,13 +141,13 @@ class SimpleConfigGeneratorTest {
         val rules = route.getAsJsonArray("rules")
         val ruleSets = route.getAsJsonArray("rule_set")
 
-        // 1. Verify QUIC (UDP 443) blocking rule exists
+        // 1. Verify QUIC (UDP 443) reject rule exists
         val quicBlockRule = rules.firstOrNull {
             it.asJsonObject.get("port")?.asInt == 443 &&
                     it.asJsonObject.get("network")?.asString == "udp" &&
-                    it.asJsonObject.get("outbound")?.asString == "block"
+                    it.asJsonObject.get("action")?.asString == "reject"
         }
-        assertNotNull("QUIC UDP 443 block rule must exist to prevent Google Play timeouts", quicBlockRule)
+        assertNotNull("QUIC UDP 443 reject rule must exist to prevent Google Play timeouts", quicBlockRule)
 
         // 2. Verify Google, Social, and AI package_name rules exist
         val googlePkgRule = rules.firstOrNull {
@@ -190,13 +209,13 @@ class SimpleConfigGeneratorTest {
         val rules = route.getAsJsonArray("rules")
         val ruleSets = route.getAsJsonArray("rule_set")
 
-        // QUIC blocked is false -> no block rule
+        // QUIC blocked is false -> no reject rule
         val quicBlockRule = rules.firstOrNull {
             it.asJsonObject.get("port")?.asInt == 443 &&
                     it.asJsonObject.get("network")?.asString == "udp" &&
-                    it.asJsonObject.get("outbound")?.asString == "block"
+                    it.asJsonObject.get("action")?.asString == "reject"
         }
-        assertNull("QUIC block rule should NOT exist when block_quic is false", quicBlockRule)
+        assertNull("QUIC reject rule should NOT exist when block_quic is false", quicBlockRule)
 
         // Google outbound is HK-01
         val googlePkgRule = rules.firstOrNull {
@@ -388,7 +407,7 @@ class SimpleConfigGeneratorTest {
             pkgs != null && pkgs.any { p -> p.asString == "com.twitter.android" }
         }
         assertNotNull(socialPkgRoute)
-        assertEquals("block", socialPkgRoute!!.asJsonObject.get("outbound").asString)
+        assertEquals("reject", socialPkgRoute!!.asJsonObject.get("action").asString)
 
         val socialDns = dnsRules.firstOrNull {
             it.asJsonObject.get("rule_set")?.asString == "geosite-twitter"
@@ -484,6 +503,39 @@ class SimpleConfigGeneratorTest {
         }
         assertNotNull("Group 2 domain_suffix DNS rule must exist", g2Dns)
         assertEquals("dns_fakeip", g2Dns!!.asJsonObject.get("server").asString)
+    }
+
+    @Test
+    fun testToggleSuppressEchAndCustomStack() {
+        val cfgDisabled = SimpleConfig(
+            dns = SimpleDnsConfig(suppress_ech = false),
+            inbound = SimpleInboundConfig(tun_stack = "system")
+        )
+        val jsonDisabled = SimpleConfigGenerator.generate(cfgDisabled, emptyList())
+        val dnsRulesDisabled = jsonDisabled.getAsJsonObject("dns").getAsJsonArray("rules")
+        val httpsRuleDisabled = dnsRulesDisabled.firstOrNull {
+            val qtypes = it.asJsonObject.getAsJsonArray("query_type")
+            qtypes != null && qtypes.any { qt -> qt.asString == "HTTPS" }
+        }
+        assertNull("HTTPS/SVCB query filter should NOT exist when suppress_ech is false", httpsRuleDisabled)
+
+        val inboundsDisabled = jsonDisabled.getAsJsonArray("inbounds")
+        assertEquals("system", inboundsDisabled[0].asJsonObject.get("stack").asString)
+
+        val cfgEnabled = SimpleConfig(
+            dns = SimpleDnsConfig(suppress_ech = true),
+            inbound = SimpleInboundConfig(tun_stack = "gvisor")
+        )
+        val jsonEnabled = SimpleConfigGenerator.generate(cfgEnabled, emptyList())
+        val dnsRulesEnabled = jsonEnabled.getAsJsonObject("dns").getAsJsonArray("rules")
+        val httpsRuleEnabled = dnsRulesEnabled.firstOrNull {
+            val qtypes = it.asJsonObject.getAsJsonArray("query_type")
+            qtypes != null && qtypes.any { qt -> qt.asString == "HTTPS" }
+        }
+        assertNotNull("HTTPS/SVCB query filter must exist when suppress_ech is true", httpsRuleEnabled)
+
+        val inboundsEnabled = jsonEnabled.getAsJsonArray("inbounds")
+        assertEquals("gvisor", inboundsEnabled[0].asJsonObject.get("stack").asString)
     }
 
     @Test

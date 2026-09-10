@@ -148,6 +148,37 @@ object SimpleConfigGenerator {
             })
         }
 
+        // 1. Intercept HTTPS (Type 65) and SVCB (Type 64) queries with predefined NOERROR when enabled
+        // RFC 9460: Returning empty NOERROR gracefully informs clients (e.g. Chrome, Android)
+        // that no HTTPS RR exists, forcing instant fallback to standard A/AAAA queries.
+        // This prevents ECH (Encrypted Client Hello) from encrypting SNI (which breaks sing-box TLS sniffing),
+        // prevents foreign domain leakage to domestic DNS, and eliminates FakeIP non-IP query errors.
+        if (dnsConfig.isSuppressEch) {
+            rules.add(JsonObject().apply {
+                val qTypes = JsonArray().apply {
+                    add("HTTPS")
+                    add("SVCB")
+                }
+                add("query_type", qTypes)
+                addProperty("action", "predefined")
+                addProperty("rcode", "NOERROR")
+            })
+        }
+
+        // 2. In FakeIP mode, divert all non-IP queries (anything that is NOT A and NOT AAAA, such as PTR, TXT, SRV)
+        // to dns_local so that fakeip server never receives unsupported non-IP queries.
+        if (isFakeIpMode) {
+            rules.add(JsonObject().apply {
+                val ipTypes = JsonArray().apply {
+                    add("A")
+                    add("AAAA")
+                }
+                add("query_type", ipTypes)
+                addProperty("invert", true)
+                addProperty("server", "dns_local")
+            })
+        }
+
         val remoteDnsTag = if (hasNodes && targetProxy != "direct") {
             if (isFakeIpMode) "dns_fakeip" else "dns_remote"
         } else {
@@ -269,7 +300,7 @@ object SimpleConfigGenerator {
             }
         }
 
-        val finalDns = if (routeConfig.mode == "global" && hasNodes && targetProxy != "direct") remoteDnsTag else "dns_local"
+        val finalDns = if (routeConfig.mode == "global" && hasNodes && targetProxy != "direct" && !isFakeIpMode) remoteDnsTag else "dns_local"
 
         return JsonObject().apply {
             add("servers", servers)
@@ -372,7 +403,7 @@ object SimpleConfigGenerator {
                     addrArr.add("172.19.0.1/30")
                     add("address", addrArr)
                     addProperty("auto_route", true)
-                    addProperty("stack", "system")
+                    addProperty("stack", "mixed")
                 }
                 inbounds.add(tunObj)
             }
@@ -472,20 +503,34 @@ object SimpleConfigGenerator {
             addProperty("action", "hijack-dns")
         })
 
+        // Helper function to add a route rule with either target outbound or action reject
+        fun addRouteRule(target: String, populate: (JsonObject) -> Unit) {
+            val rule = JsonObject()
+            populate(rule)
+            if (target == "block") {
+                rule.addProperty("action", "reject")
+            } else {
+                rule.addProperty("outbound", target)
+            }
+            rules.add(rule)
+        }
+
         // Block QUIC (UDP 443) traffic so that Android apps (especially Google Play & YouTube)
-        // immediately fall back to TCP HTTP/2 instead of hanging on UDP timeouts or unsupported UDP proxies
+        // immediately fall back to TCP HTTP/2 instead of hanging on UDP timeouts or unsupported UDP proxies.
+        // Using action reject instead of outbound block terminates packets cleanly at the router layer
+        // and avoids "listen packet connection using outbound/block: operation not permitted" error.
         if (routeConfig.isBlockQuic) {
             rules.add(JsonObject().apply {
                 addProperty("port", 443)
                 addProperty("network", "udp")
-                addProperty("outbound", "block")
+                addProperty("action", "reject")
             })
         }
 
         if (routeConfig.block_ads) {
             rules.add(JsonObject().apply {
                 addProperty("rule_set", "geosite-category-ads-all")
-                addProperty("outbound", "block")
+                addProperty("action", "reject")
             })
         }
 
@@ -502,10 +547,9 @@ object SimpleConfigGenerator {
             val groupTarget = resolveOutbound(group.outboundTag, proxyNodeTags, hasNodes, targetProxy)
             val pkgArr = JsonArray()
             group.packageNames.forEach { pkgArr.add(it) }
-            rules.add(JsonObject().apply {
-                add("package_name", pkgArr)
-                addProperty("outbound", groupTarget)
-            })
+            addRouteRule(groupTarget) {
+                it.add("package_name", pkgArr)
+            }
         }
 
         // 1.1 Custom Domain Groups routing
@@ -514,66 +558,56 @@ object SimpleConfigGenerator {
             val groupTarget = resolveOutbound(group.outboundTag, proxyNodeTags, hasNodes, targetProxy)
             val domainArr = JsonArray()
             group.domainSuffixes.forEach { domainArr.add(it) }
-            rules.add(JsonObject().apply {
-                add("domain_suffix", domainArr)
-                addProperty("outbound", groupTarget)
-            })
+            addRouteRule(groupTarget) {
+                it.add("domain_suffix", domainArr)
+            }
         }
 
         // 2. Google Preset routing
         if (routeConfig.isRouteGoogle) {
             val googleTarget = resolveOutbound(routeConfig.googleOutbound, proxyNodeTags, hasNodes, targetProxy)
-            rules.add(JsonObject().apply {
-                add("package_name", AppRulePresets.google.apps.toPackagesJsonArray())
-                addProperty("outbound", googleTarget)
-            })
-            rules.add(JsonObject().apply {
-                add("domain_suffix", AppRulePresets.google.domainSuffixes.toJsonArray())
-                addProperty("outbound", googleTarget)
-            })
+            addRouteRule(googleTarget) {
+                it.add("package_name", AppRulePresets.google.apps.toPackagesJsonArray())
+            }
+            addRouteRule(googleTarget) {
+                it.add("domain_suffix", AppRulePresets.google.domainSuffixes.toJsonArray())
+            }
             AppRulePresets.google.ruleSets.forEach { rs ->
-                rules.add(JsonObject().apply {
-                    addProperty("rule_set", rs)
-                    addProperty("outbound", googleTarget)
-                })
+                addRouteRule(googleTarget) {
+                    it.addProperty("rule_set", rs)
+                }
             }
         }
 
         // 3. Social Preset routing
         if (routeConfig.isRouteSocial) {
             val socialTarget = resolveOutbound(routeConfig.socialOutbound, proxyNodeTags, hasNodes, targetProxy)
-            rules.add(JsonObject().apply {
-                add("package_name", AppRulePresets.social.apps.toPackagesJsonArray())
-                addProperty("outbound", socialTarget)
-            })
-            rules.add(JsonObject().apply {
-                add("domain_suffix", AppRulePresets.social.domainSuffixes.toJsonArray())
-                addProperty("outbound", socialTarget)
-            })
+            addRouteRule(socialTarget) {
+                it.add("package_name", AppRulePresets.social.apps.toPackagesJsonArray())
+            }
+            addRouteRule(socialTarget) {
+                it.add("domain_suffix", AppRulePresets.social.domainSuffixes.toJsonArray())
+            }
             AppRulePresets.social.ruleSets.forEach { rs ->
-                rules.add(JsonObject().apply {
-                    addProperty("rule_set", rs)
-                    addProperty("outbound", socialTarget)
-                })
+                addRouteRule(socialTarget) {
+                    it.addProperty("rule_set", rs)
+                }
             }
         }
 
         // 4. AI Preset routing
         if (routeConfig.isRouteAi) {
             val aiTarget = resolveOutbound(routeConfig.aiOutbound, proxyNodeTags, hasNodes, targetProxy)
-            rules.add(JsonObject().apply {
-                add("package_name", AppRulePresets.ai.apps.toPackagesJsonArray())
-                addProperty("outbound", aiTarget)
-            })
-            rules.add(JsonObject().apply {
-                add("domain_suffix", AppRulePresets.ai.domainSuffixes.toJsonArray())
-                addProperty("outbound", aiTarget)
-            })
+            addRouteRule(aiTarget) {
+                it.add("package_name", AppRulePresets.ai.apps.toPackagesJsonArray())
+            }
+            addRouteRule(aiTarget) {
+                it.add("domain_suffix", AppRulePresets.ai.domainSuffixes.toJsonArray())
+            }
             AppRulePresets.ai.ruleSets.forEach { rs ->
-                rules.add(JsonObject().apply {
-                    addProperty("rule_set", rs)
-                    addProperty("outbound", aiTarget)
-                })
+                addRouteRule(aiTarget) {
+                    it.addProperty("rule_set", rs)
+                }
             }
         }
 

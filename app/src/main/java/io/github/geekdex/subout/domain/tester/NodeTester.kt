@@ -51,6 +51,7 @@ object NodeTester {
                 }
             }
 
+            @Suppress("DEPRECATION")
             val networks = cm.allNetworks
             // 优先选择非 VPN 的 Wi-Fi 网络
             val wifi = networks.firstOrNull { net ->

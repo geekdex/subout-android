@@ -10,14 +10,17 @@ data class SimpleLogConfig(
 data class SimpleDnsConfig(
     val mode: String = "preset_fakeip", // "preset_fakeip", "preset_domestic_foreign", "fast_public", "custom"
     val domestic_dns: String = "223.5.5.5",
-    val foreign_dns: String = "fakeip"
-)
+    val foreign_dns: String = "fakeip",
+    val suppress_ech: Boolean? = true // 抑制 HTTPS (Type 65) / SVCB DNS 查询，防止浏览器 ECH 加密导致分流失效，并杜绝 FakeIP 非 IP 查询报错
+) {
+    val isSuppressEch: Boolean get() = suppress_ech ?: true
+}
 
 data class SimpleInboundConfig(
     val inbound_type: String = "tun", // "tun", "mixed"
     val mixed_port: Int = 2080,
     val allow_lan: Boolean = false,
-    val tun_stack: String = "system", // "system", "gvisor", "mixed"
+    val tun_stack: String = "mixed", // "mixed" (推荐，Android SFA 黄金标准), "system", "gvisor"
     val tun_auto_route: Boolean = true
 )
 

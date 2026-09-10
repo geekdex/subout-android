@@ -315,12 +315,14 @@ class SimpleConfigViewModel(
     fun updateDns(
         mode: String = _currentConfig.value.dns.mode,
         domesticDns: String = _currentConfig.value.dns.domestic_dns,
-        foreignDns: String = _currentConfig.value.dns.foreign_dns
+        foreignDns: String = _currentConfig.value.dns.foreign_dns,
+        suppressEch: Boolean = _currentConfig.value.dns.isSuppressEch
     ) {
         val updatedDns = _currentConfig.value.dns.copy(
             mode = mode,
             domestic_dns = domesticDns,
-            foreign_dns = foreignDns
+            foreign_dns = foreignDns,
+            suppress_ech = suppressEch
         )
         applyAndSave(_currentConfig.value.copy(dns = updatedDns))
     }

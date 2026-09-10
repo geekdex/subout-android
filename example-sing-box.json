@@ -23,6 +23,22 @@
         "rcode": "NOERROR"
       },
       {
+        "query_type": [
+          "HTTPS",
+          "SVCB"
+        ],
+        "action": "predefined",
+        "rcode": "NOERROR"
+      },
+      {
+        "query_type": [
+          "A",
+          "AAAA"
+        ],
+        "invert": true,
+        "server": "dns_local"
+      },
+      {
         "package_name": [
           "com.android.vending",
           "com.google.android.gms",
@@ -185,7 +201,7 @@
         "172.19.0.1/30"
       ],
       "auto_route": true,
-      "stack": "system"
+      "stack": "mixed"
     }
   ],
   "outbounds": [
@@ -271,11 +287,11 @@
       {
         "port": 443,
         "network": "udp",
-        "outbound": "block"
+        "action": "reject"
       },
       {
         "rule_set": "geosite-category-ads-all",
-        "outbound": "block"
+        "action": "reject"
       },
       {
         "ip_is_private": true,
