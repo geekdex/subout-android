@@ -68,7 +68,7 @@ object SimpleConfigGenerator {
         }
 
         // 2. DNS
-        root.add("dns", buildDnsSection(config.dns, config.route, hasNodes, targetProxy))
+        root.add("dns", buildDnsSection(config.dns, config.route, hasNodes, targetProxy, proxyNodeTags))
 
         // 3. Inbounds
         root.add("inbounds", buildInboundsSection(config.inbound))
@@ -114,7 +114,8 @@ object SimpleConfigGenerator {
         dnsConfig: SimpleDnsConfig,
         routeConfig: SimpleRouteConfig,
         hasNodes: Boolean,
-        targetProxy: String
+        targetProxy: String,
+        proxyNodeTags: List<String>
     ): JsonObject {
         val isFakeIpMode = dnsConfig.mode == "preset_fakeip" ||
                 dnsConfig.mode == "fakeip" ||
@@ -153,43 +154,11 @@ object SimpleConfigGenerator {
             "dns_local"
         }
 
-        if (hasNodes && targetProxy != "direct") {
-            if (routeConfig.isRouteGoogle) {
-                rules.add(JsonObject().apply {
-                    add("package_name", AppRulePresets.google.apps.toPackagesJsonArray())
-                    addProperty("server", remoteDnsTag)
-                })
-                rules.add(JsonObject().apply {
-                    add("domain_suffix", AppRulePresets.google.domainSuffixes.toJsonArray())
-                    addProperty("server", remoteDnsTag)
-                })
-            }
-            if (routeConfig.isRouteSocial) {
-                rules.add(JsonObject().apply {
-                    add("package_name", AppRulePresets.social.apps.toPackagesJsonArray())
-                    addProperty("server", remoteDnsTag)
-                })
-                rules.add(JsonObject().apply {
-                    add("domain_suffix", AppRulePresets.social.domainSuffixes.toJsonArray())
-                    addProperty("server", remoteDnsTag)
-                })
-            }
-            if (routeConfig.isRouteAi) {
-                rules.add(JsonObject().apply {
-                    add("package_name", AppRulePresets.ai.apps.toPackagesJsonArray())
-                    addProperty("server", remoteDnsTag)
-                })
-                rules.add(JsonObject().apply {
-                    add("domain_suffix", AppRulePresets.ai.domainSuffixes.toJsonArray())
-                    addProperty("server", remoteDnsTag)
-                })
-            }
-        }
-
-        // Custom App Groups DNS rules
+        // 1. Custom App Groups DNS rules
         val enabledCustomGroups = routeConfig.customGroups.filter { it.isEnabled && it.packageNames.isNotEmpty() }
         for (group in enabledCustomGroups) {
-            val dnsServer = if (group.outboundTag == "direct" || group.outboundTag == "block" || !hasNodes) "dns_local" else remoteDnsTag
+            val groupTarget = resolveOutbound(group.outboundTag, proxyNodeTags, hasNodes, targetProxy)
+            val dnsServer = getDnsServerForTarget(groupTarget, isFakeIpMode, hasNodes)
             val pkgArr = JsonArray()
             group.packageNames.forEach { pkgArr.add(it) }
             rules.add(JsonObject().apply {
@@ -198,32 +167,68 @@ object SimpleConfigGenerator {
             })
         }
 
+        // 2. Google Preset DNS rules
+        if (routeConfig.isRouteGoogle) {
+            val googleTarget = resolveOutbound(routeConfig.googleOutbound, proxyNodeTags, hasNodes, targetProxy)
+            val googleDns = getDnsServerForTarget(googleTarget, isFakeIpMode, hasNodes)
+            rules.add(JsonObject().apply {
+                add("package_name", AppRulePresets.google.apps.toPackagesJsonArray())
+                addProperty("server", googleDns)
+            })
+            rules.add(JsonObject().apply {
+                add("domain_suffix", AppRulePresets.google.domainSuffixes.toJsonArray())
+                addProperty("server", googleDns)
+            })
+            AppRulePresets.google.ruleSets.forEach { rs ->
+                rules.add(JsonObject().apply {
+                    addProperty("rule_set", rs)
+                    addProperty("server", googleDns)
+                })
+            }
+        }
+
+        // 3. Social Preset DNS rules
+        if (routeConfig.isRouteSocial) {
+            val socialTarget = resolveOutbound(routeConfig.socialOutbound, proxyNodeTags, hasNodes, targetProxy)
+            val socialDns = getDnsServerForTarget(socialTarget, isFakeIpMode, hasNodes)
+            rules.add(JsonObject().apply {
+                add("package_name", AppRulePresets.social.apps.toPackagesJsonArray())
+                addProperty("server", socialDns)
+            })
+            rules.add(JsonObject().apply {
+                add("domain_suffix", AppRulePresets.social.domainSuffixes.toJsonArray())
+                addProperty("server", socialDns)
+            })
+            AppRulePresets.social.ruleSets.forEach { rs ->
+                rules.add(JsonObject().apply {
+                    addProperty("rule_set", rs)
+                    addProperty("server", socialDns)
+                })
+            }
+        }
+
+        // 4. AI Preset DNS rules
+        if (routeConfig.isRouteAi) {
+            val aiTarget = resolveOutbound(routeConfig.aiOutbound, proxyNodeTags, hasNodes, targetProxy)
+            val aiDns = getDnsServerForTarget(aiTarget, isFakeIpMode, hasNodes)
+            rules.add(JsonObject().apply {
+                add("package_name", AppRulePresets.ai.apps.toPackagesJsonArray())
+                addProperty("server", aiDns)
+            })
+            rules.add(JsonObject().apply {
+                add("domain_suffix", AppRulePresets.ai.domainSuffixes.toJsonArray())
+                addProperty("server", aiDns)
+            })
+            AppRulePresets.ai.ruleSets.forEach { rs ->
+                rules.add(JsonObject().apply {
+                    addProperty("rule_set", rs)
+                    addProperty("server", aiDns)
+                })
+            }
+        }
+
         when (routeConfig.mode) {
             "smart" -> {
-                if (routeConfig.isRouteGoogle) {
-                    AppRulePresets.google.ruleSets.forEach { rs ->
-                        rules.add(JsonObject().apply {
-                            addProperty("rule_set", rs)
-                            addProperty("server", remoteDnsTag)
-                        })
-                    }
-                }
-                if (routeConfig.isRouteSocial) {
-                    AppRulePresets.social.ruleSets.forEach { rs ->
-                        rules.add(JsonObject().apply {
-                            addProperty("rule_set", rs)
-                            addProperty("server", remoteDnsTag)
-                        })
-                    }
-                }
-                if (routeConfig.isRouteAi) {
-                    AppRulePresets.ai.ruleSets.forEach { rs ->
-                        rules.add(JsonObject().apply {
-                            addProperty("rule_set", rs)
-                            addProperty("server", remoteDnsTag)
-                        })
-                    }
-                }
                 rules.add(JsonObject().apply {
                     addProperty("rule_set", "geosite-cn")
                     addProperty("server", "dns_local")
@@ -234,30 +239,6 @@ object SimpleConfigGenerator {
                 })
             }
             "gfw" -> {
-                if (routeConfig.isRouteGoogle) {
-                    AppRulePresets.google.ruleSets.forEach { rs ->
-                        rules.add(JsonObject().apply {
-                            addProperty("rule_set", rs)
-                            addProperty("server", remoteDnsTag)
-                        })
-                    }
-                }
-                if (routeConfig.isRouteSocial) {
-                    AppRulePresets.social.ruleSets.forEach { rs ->
-                        rules.add(JsonObject().apply {
-                            addProperty("rule_set", rs)
-                            addProperty("server", remoteDnsTag)
-                        })
-                    }
-                }
-                if (routeConfig.isRouteAi) {
-                    AppRulePresets.ai.ruleSets.forEach { rs ->
-                        rules.add(JsonObject().apply {
-                            addProperty("rule_set", rs)
-                            addProperty("server", remoteDnsTag)
-                        })
-                    }
-                }
                 rules.add(JsonObject().apply {
                     addProperty("rule_set", "geosite-geolocation-!cn")
                     addProperty("server", remoteDnsTag)
@@ -268,12 +249,19 @@ object SimpleConfigGenerator {
                     addProperty("server", remoteDnsTag)
                 })
             }
+            "direct" -> {
+                rules.add(JsonObject().apply {
+                    addProperty("server", "dns_local")
+                })
+            }
         }
+
+        val finalDns = if (routeConfig.mode == "global" && hasNodes && targetProxy != "direct") remoteDnsTag else "dns_local"
 
         return JsonObject().apply {
             add("servers", servers)
             add("rules", rules)
-            addProperty("final", "dns_local")
+            addProperty("final", finalDns)
             addProperty("strategy", "ipv4_only")
         }
     }
@@ -495,22 +483,10 @@ object SimpleConfigGenerator {
             })
         }
 
-        fun resolveOutbound(customOutbound: String): String {
-            return when {
-                customOutbound.isNotBlank() && (proxyNodeTags.contains(customOutbound) || listOf("proxy", "AUTO-Test", "direct", "block").contains(customOutbound)) -> customOutbound
-                hasNodes -> targetProxy
-                else -> "direct"
-            }
-        }
-
-        val googleTarget = resolveOutbound(routeConfig.googleOutbound)
-        val socialTarget = resolveOutbound(routeConfig.socialOutbound)
-        val aiTarget = resolveOutbound(routeConfig.aiOutbound)
-
-        // Custom App Groups routing (Strict app-level rules placed before general rules)
+        // 1. Custom App Groups routing (Strict app-level rules placed before general rules)
         val enabledCustomGroups = routeConfig.customGroups.filter { it.isEnabled && it.packageNames.isNotEmpty() }
         for (group in enabledCustomGroups) {
-            val groupTarget = resolveOutbound(group.outboundTag)
+            val groupTarget = resolveOutbound(group.outboundTag, proxyNodeTags, hasNodes, targetProxy)
             val pkgArr = JsonArray()
             group.packageNames.forEach { pkgArr.add(it) }
             rules.add(JsonObject().apply {
@@ -519,67 +495,66 @@ object SimpleConfigGenerator {
             })
         }
 
-        if (hasNodes) {
-            // Dedicated package name & domain suffix routing for enabled presets
-            if (routeConfig.isRouteGoogle && googleTarget != "direct") {
+        // 2. Google Preset routing
+        if (routeConfig.isRouteGoogle) {
+            val googleTarget = resolveOutbound(routeConfig.googleOutbound, proxyNodeTags, hasNodes, targetProxy)
+            rules.add(JsonObject().apply {
+                add("package_name", AppRulePresets.google.apps.toPackagesJsonArray())
+                addProperty("outbound", googleTarget)
+            })
+            rules.add(JsonObject().apply {
+                add("domain_suffix", AppRulePresets.google.domainSuffixes.toJsonArray())
+                addProperty("outbound", googleTarget)
+            })
+            AppRulePresets.google.ruleSets.forEach { rs ->
                 rules.add(JsonObject().apply {
-                    add("package_name", AppRulePresets.google.apps.toPackagesJsonArray())
-                    addProperty("outbound", googleTarget)
-                })
-                rules.add(JsonObject().apply {
-                    add("domain_suffix", AppRulePresets.google.domainSuffixes.toJsonArray())
+                    addProperty("rule_set", rs)
                     addProperty("outbound", googleTarget)
                 })
             }
-            if (routeConfig.isRouteSocial && socialTarget != "direct") {
+        }
+
+        // 3. Social Preset routing
+        if (routeConfig.isRouteSocial) {
+            val socialTarget = resolveOutbound(routeConfig.socialOutbound, proxyNodeTags, hasNodes, targetProxy)
+            rules.add(JsonObject().apply {
+                add("package_name", AppRulePresets.social.apps.toPackagesJsonArray())
+                addProperty("outbound", socialTarget)
+            })
+            rules.add(JsonObject().apply {
+                add("domain_suffix", AppRulePresets.social.domainSuffixes.toJsonArray())
+                addProperty("outbound", socialTarget)
+            })
+            AppRulePresets.social.ruleSets.forEach { rs ->
                 rules.add(JsonObject().apply {
-                    add("package_name", AppRulePresets.social.apps.toPackagesJsonArray())
-                    addProperty("outbound", socialTarget)
-                })
-                rules.add(JsonObject().apply {
-                    add("domain_suffix", AppRulePresets.social.domainSuffixes.toJsonArray())
+                    addProperty("rule_set", rs)
                     addProperty("outbound", socialTarget)
                 })
             }
-            if (routeConfig.isRouteAi && aiTarget != "direct") {
+        }
+
+        // 4. AI Preset routing
+        if (routeConfig.isRouteAi) {
+            val aiTarget = resolveOutbound(routeConfig.aiOutbound, proxyNodeTags, hasNodes, targetProxy)
+            rules.add(JsonObject().apply {
+                add("package_name", AppRulePresets.ai.apps.toPackagesJsonArray())
+                addProperty("outbound", aiTarget)
+            })
+            rules.add(JsonObject().apply {
+                add("domain_suffix", AppRulePresets.ai.domainSuffixes.toJsonArray())
+                addProperty("outbound", aiTarget)
+            })
+            AppRulePresets.ai.ruleSets.forEach { rs ->
                 rules.add(JsonObject().apply {
-                    add("package_name", AppRulePresets.ai.apps.toPackagesJsonArray())
-                    addProperty("outbound", aiTarget)
-                })
-                rules.add(JsonObject().apply {
-                    add("domain_suffix", AppRulePresets.ai.domainSuffixes.toJsonArray())
+                    addProperty("rule_set", rs)
                     addProperty("outbound", aiTarget)
                 })
             }
         }
 
+        // 5. Mode-specific routing
         when (routeConfig.mode) {
             "smart" -> {
-                // Preset rule_sets MUST precede geosite-cn to prevent direct routing
-                if (hasNodes && routeConfig.isRouteGoogle && googleTarget != "direct") {
-                    AppRulePresets.google.ruleSets.forEach { rs ->
-                        rules.add(JsonObject().apply {
-                            addProperty("rule_set", rs)
-                            addProperty("outbound", googleTarget)
-                        })
-                    }
-                }
-                if (hasNodes && routeConfig.isRouteSocial && socialTarget != "direct") {
-                    AppRulePresets.social.ruleSets.forEach { rs ->
-                        rules.add(JsonObject().apply {
-                            addProperty("rule_set", rs)
-                            addProperty("outbound", socialTarget)
-                        })
-                    }
-                }
-                if (hasNodes && routeConfig.isRouteAi && aiTarget != "direct") {
-                    AppRulePresets.ai.ruleSets.forEach { rs ->
-                        rules.add(JsonObject().apply {
-                            addProperty("rule_set", rs)
-                            addProperty("outbound", aiTarget)
-                        })
-                    }
-                }
                 rules.add(JsonObject().apply {
                     addProperty("rule_set", "geosite-cn")
                     addProperty("outbound", "direct")
@@ -597,34 +572,15 @@ object SimpleConfigGenerator {
                 })
             }
             "gfw" -> {
-                if (hasNodes && routeConfig.isRouteGoogle && googleTarget != "direct") {
-                    AppRulePresets.google.ruleSets.forEach { rs ->
-                        rules.add(JsonObject().apply {
-                            addProperty("rule_set", rs)
-                            addProperty("outbound", googleTarget)
-                        })
-                    }
-                }
-                if (hasNodes && routeConfig.isRouteSocial && socialTarget != "direct") {
-                    AppRulePresets.social.ruleSets.forEach { rs ->
-                        rules.add(JsonObject().apply {
-                            addProperty("rule_set", rs)
-                            addProperty("outbound", socialTarget)
-                        })
-                    }
-                }
-                if (hasNodes && routeConfig.isRouteAi && aiTarget != "direct") {
-                    AppRulePresets.ai.ruleSets.forEach { rs ->
-                        rules.add(JsonObject().apply {
-                            addProperty("rule_set", rs)
-                            addProperty("outbound", aiTarget)
-                        })
-                    }
-                }
                 rules.add(JsonObject().apply {
                     addProperty("rule_set", "geosite-geolocation-!cn")
                     addProperty("outbound", targetProxy)
                 })
+                rules.add(JsonObject().apply {
+                    addProperty("outbound", "direct")
+                })
+            }
+            "direct" -> {
                 rules.add(JsonObject().apply {
                     addProperty("outbound", "direct")
                 })
@@ -677,13 +633,43 @@ object SimpleConfigGenerator {
             })
         }
 
+        val finalOutbound = when (routeConfig.mode) {
+            "direct", "gfw" -> "direct"
+            else -> targetProxy
+        }
+
         return JsonObject().apply {
             addProperty("auto_detect_interface", true)
             addProperty("default_domain_resolver", "dns_local")
             addProperty("default_http_client", "direct")
             add("rules", rules)
             add("rule_set", ruleSets)
-            addProperty("final", targetProxy)
+            addProperty("final", finalOutbound)
+        }
+    }
+
+    private fun resolveOutbound(
+        customOutbound: String,
+        proxyNodeTags: List<String>,
+        hasNodes: Boolean,
+        targetProxy: String
+    ): String {
+        return when {
+            customOutbound.isNotBlank() && (proxyNodeTags.contains(customOutbound) || listOf("proxy", "AUTO-Test", "direct", "block").contains(customOutbound)) -> customOutbound
+            hasNodes -> targetProxy
+            else -> "direct"
+        }
+    }
+
+    private fun getDnsServerForTarget(
+        target: String,
+        isFakeIpMode: Boolean,
+        hasNodes: Boolean
+    ): String {
+        return when {
+            target == "direct" || target == "block" || !hasNodes -> "dns_local"
+            isFakeIpMode -> "dns_fakeip"
+            else -> "dns_remote"
         }
     }
 

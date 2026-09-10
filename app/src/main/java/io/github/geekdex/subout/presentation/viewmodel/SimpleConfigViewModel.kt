@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.geekdex.subout.SuboutApplication
 import io.github.geekdex.subout.data.repository.ConfigRepository
 import io.github.geekdex.subout.data.repository.NodeRepository
+import io.github.geekdex.subout.domain.generator.SimpleConfigGenerator
 import io.github.geekdex.subout.domain.model.AppRulePresets
 import io.github.geekdex.subout.domain.model.CustomAppGroup
 import io.github.geekdex.subout.domain.model.InstalledAppInfo
@@ -353,7 +354,17 @@ class SimpleConfigViewModel(
     fun saveConfig() {
         viewModelScope.launch {
             configRepository.saveConfig(_currentConfig.value)
-            _message.value = "配置已保存"
+            try {
+                val enabledNodes = nodeRepository.getEnabledNodes()
+                val jsonStr = withContext(Dispatchers.Default) {
+                    SimpleConfigGenerator.generatePrettyString(_currentConfig.value, enabledNodes)
+                }
+                SuboutApplication.instance.configServer.updateContent(jsonStr)
+                SuboutApplication.instance.configExporter.exportToFile(jsonStr)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            _message.value = "配置已保存并立即生效"
         }
     }
 

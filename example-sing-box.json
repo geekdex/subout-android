@@ -58,6 +58,14 @@
         "server": "dns_fakeip"
       },
       {
+        "rule_set": "geosite-google",
+        "server": "dns_fakeip"
+      },
+      {
+        "rule_set": "geosite-youtube",
+        "server": "dns_fakeip"
+      },
+      {
         "package_name": [
           "com.twitter.android",
           "com.instagram.android",
@@ -95,6 +103,26 @@
         "server": "dns_fakeip"
       },
       {
+        "rule_set": "geosite-twitter",
+        "server": "dns_fakeip"
+      },
+      {
+        "rule_set": "geosite-facebook",
+        "server": "dns_fakeip"
+      },
+      {
+        "rule_set": "geosite-instagram",
+        "server": "dns_fakeip"
+      },
+      {
+        "rule_set": "geosite-telegram",
+        "server": "dns_fakeip"
+      },
+      {
+        "rule_set": "geosite-discord",
+        "server": "dns_fakeip"
+      },
+      {
         "package_name": [
           "com.openai.chatgpt",
           "com.anthropic.claude",
@@ -119,34 +147,6 @@
           ".copilot.microsoft.com",
           ".perplexity.ai"
         ],
-        "server": "dns_fakeip"
-      },
-      {
-        "rule_set": "geosite-google",
-        "server": "dns_fakeip"
-      },
-      {
-        "rule_set": "geosite-youtube",
-        "server": "dns_fakeip"
-      },
-      {
-        "rule_set": "geosite-twitter",
-        "server": "dns_fakeip"
-      },
-      {
-        "rule_set": "geosite-facebook",
-        "server": "dns_fakeip"
-      },
-      {
-        "rule_set": "geosite-instagram",
-        "server": "dns_fakeip"
-      },
-      {
-        "rule_set": "geosite-telegram",
-        "server": "dns_fakeip"
-      },
-      {
-        "rule_set": "geosite-discord",
         "server": "dns_fakeip"
       },
       {
@@ -317,6 +317,14 @@
         "outbound": "AUTO-Test"
       },
       {
+        "rule_set": "geosite-google",
+        "outbound": "AUTO-Test"
+      },
+      {
+        "rule_set": "geosite-youtube",
+        "outbound": "AUTO-Test"
+      },
+      {
         "package_name": [
           "com.twitter.android",
           "com.instagram.android",
@@ -354,6 +362,26 @@
         "outbound": "AUTO-Test"
       },
       {
+        "rule_set": "geosite-twitter",
+        "outbound": "AUTO-Test"
+      },
+      {
+        "rule_set": "geosite-facebook",
+        "outbound": "AUTO-Test"
+      },
+      {
+        "rule_set": "geosite-instagram",
+        "outbound": "AUTO-Test"
+      },
+      {
+        "rule_set": "geosite-telegram",
+        "outbound": "AUTO-Test"
+      },
+      {
+        "rule_set": "geosite-discord",
+        "outbound": "AUTO-Test"
+      },
+      {
         "package_name": [
           "com.openai.chatgpt",
           "com.anthropic.claude",
@@ -378,34 +406,6 @@
           ".copilot.microsoft.com",
           ".perplexity.ai"
         ],
-        "outbound": "AUTO-Test"
-      },
-      {
-        "rule_set": "geosite-google",
-        "outbound": "AUTO-Test"
-      },
-      {
-        "rule_set": "geosite-youtube",
-        "outbound": "AUTO-Test"
-      },
-      {
-        "rule_set": "geosite-twitter",
-        "outbound": "AUTO-Test"
-      },
-      {
-        "rule_set": "geosite-facebook",
-        "outbound": "AUTO-Test"
-      },
-      {
-        "rule_set": "geosite-instagram",
-        "outbound": "AUTO-Test"
-      },
-      {
-        "rule_set": "geosite-telegram",
-        "outbound": "AUTO-Test"
-      },
-      {
-        "rule_set": "geosite-discord",
         "outbound": "AUTO-Test"
       },
       {

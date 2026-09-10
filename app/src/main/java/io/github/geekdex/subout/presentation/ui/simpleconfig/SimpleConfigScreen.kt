@@ -780,7 +780,14 @@ fun PresetAppRuleItem(
 
             if (enabled) {
                 // Outbound selector
-                val displayOutbound = if (customOutbound.isBlank()) "默认跟随主代理 (推荐)" else customOutbound
+                val displayOutbound = when {
+                    customOutbound.isBlank() -> "默认跟随主代理 (推荐)"
+                    customOutbound == "direct" -> "直连 (direct - 不走代理)"
+                    customOutbound == "block" -> "拦截 (block - 禁止联网)"
+                    customOutbound == "proxy" -> "主代理策略 (proxy)"
+                    customOutbound == "AUTO-Test" -> "自动测速优选 (AUTO-Test)"
+                    else -> customOutbound
+                }
                 ExposedDropdownMenuBox(
                     expanded = outboundMenuExpanded,
                     onExpandedChange = { outboundMenuExpanded = !outboundMenuExpanded }
@@ -807,8 +814,15 @@ fun PresetAppRuleItem(
                             }
                         )
                         availableOutbounds.forEach { outbound ->
+                            val label = when (outbound) {
+                                "direct" -> "直连 (direct - 不走代理)"
+                                "block" -> "拦截 (block - 禁止联网)"
+                                "proxy" -> "主代理策略 (proxy)"
+                                "AUTO-Test" -> "自动测速优选 (AUTO-Test)"
+                                else -> outbound
+                            }
                             DropdownMenuItem(
-                                text = { Text(outbound) },
+                                text = { Text(label) },
                                 onClick = {
                                     onOutboundChange(outbound)
                                     outboundMenuExpanded = false

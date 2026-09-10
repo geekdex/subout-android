@@ -86,6 +86,10 @@ fun ExportScreen(
     var showQrCode by remember { mutableStateOf(false) }
     var portInput by remember { mutableStateOf(uiState.currentPort.toString()) }
 
+    LaunchedEffect(Unit) {
+        viewModel.refreshConfig()
+    }
+
     LaunchedEffect(uiState.message) {
         uiState.message?.let {
             snackbarHostState.showSnackbar(it)

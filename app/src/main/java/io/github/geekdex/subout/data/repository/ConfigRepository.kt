@@ -26,7 +26,7 @@ class ConfigRepository(context: Context) {
 
     fun saveConfig(config: SimpleConfig) {
         val json = gson.toJson(config)
-        prefs.edit().putString(KEY_SIMPLE_CONFIG, json).apply()
+        prefs.edit().putString(KEY_SIMPLE_CONFIG, json).commit()
         _configState.value = config
     }
 

@@ -55,7 +55,24 @@ class ExportViewModel(
     val uiState: StateFlow<ExportUiState> = _uiState.asStateFlow()
 
     init {
-        refreshConfig()
+        // 自动响应配置或节点变更，实时更新预览与本地 HTTP 服务内容
+        viewModelScope.launch {
+            combine(
+                configRepository.configState,
+                nodeRepository.nodes
+            ) { config, nodes ->
+                val enabledNodes = nodes.filter { it.enabled }
+                withContext(Dispatchers.Default) {
+                    SimpleConfigGenerator.generatePrettyString(config, enabledNodes)
+                }
+            }.collect { jsonStr ->
+                _uiState.value = _uiState.value.copy(
+                    configJson = jsonStr,
+                    isGenerating = false
+                )
+                configServer.updateContent(jsonStr)
+            }
+        }
 
         // 监听前台服务状态
         viewModelScope.launch {

@@ -298,6 +298,130 @@ class SimpleConfigGeneratorTest {
     }
 
     @Test
+    fun testAiCustomOutboundAndDnsSyncInGfwMode() {
+        val targetNodeTag = "美国洛杉矶[CM]"
+        val cfg = SimpleConfig(
+            route = SimpleRouteConfig(
+                mode = "gfw",
+                route_ai = true,
+                ai_outbound = targetNodeTag
+            )
+        )
+        val dummyNodes = listOf(
+            Node(1, 1, targetNodeTag, "vless", "us.com", 443, "{}", true),
+            Node(2, 1, "HK-01", "trojan", "hk.com", 443, "{}", true)
+        )
+
+        val json = SimpleConfigGenerator.generate(cfg, dummyNodes)
+        val route = json.getAsJsonObject("route")
+        val routeRules = route.getAsJsonArray("rules")
+        val dns = json.getAsJsonObject("dns")
+        val dnsRules = dns.getAsJsonArray("rules")
+
+        // 1. In GFW mode, AI package rule must route to custom node
+        val aiPkgRoute = routeRules.firstOrNull {
+            val pkgs = it.asJsonObject.getAsJsonArray("package_name")
+            pkgs != null && pkgs.any { p -> p.asString == "com.openai.chatgpt" }
+        }
+        assertNotNull("AI package route rule must exist in GFW mode", aiPkgRoute)
+        assertEquals(targetNodeTag, aiPkgRoute!!.asJsonObject.get("outbound").asString)
+
+        // 2. AI geosite rule sets must route to custom node
+        val aiRuleSetRoute = routeRules.firstOrNull {
+            it.asJsonObject.get("rule_set")?.asString == "geosite-openai"
+        }
+        assertNotNull("geosite-openai route rule must exist in GFW mode", aiRuleSetRoute)
+        assertEquals(targetNodeTag, aiRuleSetRoute!!.asJsonObject.get("outbound").asString)
+
+        // 3. DNS rules must be synchronously configured to fakeip/remote DNS
+        val aiPkgDns = dnsRules.firstOrNull {
+            val pkgs = it.asJsonObject.getAsJsonArray("package_name")
+            pkgs != null && pkgs.any { p -> p.asString == "com.openai.chatgpt" }
+        }
+        assertNotNull("AI package DNS rule must exist", aiPkgDns)
+        assertEquals("dns_fakeip", aiPkgDns!!.asJsonObject.get("server").asString)
+
+        val aiRuleSetDns = dnsRules.firstOrNull {
+            it.asJsonObject.get("rule_set")?.asString == "geosite-openai"
+        }
+        assertNotNull("geosite-openai DNS rule must exist", aiRuleSetDns)
+        assertEquals("dns_fakeip", aiRuleSetDns!!.asJsonObject.get("server").asString)
+    }
+
+    @Test
+    fun testPresetDirectAndBlockOutbounds() {
+        val cfg = SimpleConfig(
+            route = SimpleRouteConfig(
+                mode = "smart",
+                route_google = true,
+                google_outbound = "direct",
+                route_social = true,
+                social_outbound = "block"
+            )
+        )
+        val dummyNodes = listOf(
+            Node(1, 1, "HK-01", "trojan", "hk.com", 443, "{}", true)
+        )
+
+        val json = SimpleConfigGenerator.generate(cfg, dummyNodes)
+        val routeRules = json.getAsJsonObject("route").getAsJsonArray("rules")
+        val dnsRules = json.getAsJsonObject("dns").getAsJsonArray("rules")
+
+        // Google -> direct
+        val googlePkgRoute = routeRules.firstOrNull {
+            val pkgs = it.asJsonObject.getAsJsonArray("package_name")
+            pkgs != null && pkgs.any { p -> p.asString == "com.android.vending" }
+        }
+        assertNotNull(googlePkgRoute)
+        assertEquals("direct", googlePkgRoute!!.asJsonObject.get("outbound").asString)
+
+        val googleDns = dnsRules.firstOrNull {
+            it.asJsonObject.get("rule_set")?.asString == "geosite-google"
+        }
+        assertNotNull(googleDns)
+        assertEquals("dns_local", googleDns!!.asJsonObject.get("server").asString)
+
+        // Social -> block
+        val socialPkgRoute = routeRules.firstOrNull {
+            val pkgs = it.asJsonObject.getAsJsonArray("package_name")
+            pkgs != null && pkgs.any { p -> p.asString == "com.twitter.android" }
+        }
+        assertNotNull(socialPkgRoute)
+        assertEquals("block", socialPkgRoute!!.asJsonObject.get("outbound").asString)
+
+        val socialDns = dnsRules.firstOrNull {
+            it.asJsonObject.get("rule_set")?.asString == "geosite-twitter"
+        }
+        assertNotNull(socialDns)
+        assertEquals("dns_local", socialDns!!.asJsonObject.get("server").asString)
+    }
+
+    @Test
+    fun testCustomOutboundFallbackWhenNodeDisabledOrMissing() {
+        val cfg = SimpleConfig(
+            route = SimpleRouteConfig(
+                mode = "smart",
+                route_ai = true,
+                ai_outbound = "Non-Existent-Node"
+            )
+        )
+        val dummyNodes = listOf(
+            Node(1, 1, "HK-01", "trojan", "hk.com", 443, "{}", true)
+        )
+
+        val json = SimpleConfigGenerator.generate(cfg, dummyNodes)
+        val routeRules = json.getAsJsonObject("route").getAsJsonArray("rules")
+
+        val aiPkgRoute = routeRules.firstOrNull {
+            val pkgs = it.asJsonObject.getAsJsonArray("package_name")
+            pkgs != null && pkgs.any { p -> p.asString == "com.openai.chatgpt" }
+        }
+        assertNotNull(aiPkgRoute)
+        // Fallback to targetProxy ("AUTO-Test" when nodes are present)
+        assertEquals("AUTO-Test", aiPkgRoute!!.asJsonObject.get("outbound").asString)
+    }
+
+    @Test
     fun testDumpExampleConfigFile() {
         val cfg = SimpleConfig()
         val dummyNodes = listOf(
