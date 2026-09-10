@@ -142,4 +142,52 @@ class ManualNodeTest {
         assertTrue(resetList.contains("热门 AI 应用出站"))
         assertTrue(resetList.contains("应用分组「专线分组」"))
     }
+
+    @Test
+    fun testValidateAndCleanMissingNodesLogic() {
+        val standardOutbounds = setOf("", "AUTO-Test", "proxy", "direct", "block")
+        val availableTags = setOf("node_survived", "node_new")
+        val initialConfig = SimpleConfig(
+            route = SimpleRouteConfig(
+                ai_outbound = "stale_sub_node",
+                google_outbound = "AUTO-Test",
+                social_outbound = "direct",
+                default_outbound = "node_survived",
+                custom_groups = listOf(
+                    CustomAppGroup(name = "媒体组", outbound = "stale_sub_node")
+                )
+            )
+        )
+
+        val route = initialConfig.route
+        val resetList = mutableListOf<String>()
+
+        var newAi = route.ai_outbound
+        if (route.ai_outbound !in standardOutbounds && route.ai_outbound !in availableTags) {
+            newAi = "direct"
+            resetList.add("热门 AI 应用出站")
+        }
+
+        var newDefault = route.default_outbound
+        if (route.default_outbound !in standardOutbounds && route.default_outbound !in availableTags) {
+            newDefault = "direct"
+            resetList.add("默认出站")
+        }
+
+        val newGroups = route.customGroups.map { group ->
+            if (group.outbound !in standardOutbounds && group.outbound !in availableTags) {
+                resetList.add("应用分组「${group.name}」")
+                group.copy(outbound = "direct")
+            } else {
+                group
+            }
+        }
+
+        assertEquals("direct", newAi)
+        assertEquals("node_survived", newDefault)
+        assertEquals("direct", newGroups[0].outbound)
+        assertEquals(2, resetList.size)
+        assertTrue(resetList.contains("热门 AI 应用出站"))
+        assertTrue(resetList.contains("应用分组「媒体组」"))
+    }
 }

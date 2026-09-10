@@ -53,7 +53,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -308,13 +308,13 @@ fun NodesScreen(
         },
         floatingActionButton = {
             if (!uiState.isSelectionMode) {
-                ExtendedFloatingActionButton(
+                FloatingActionButton(
                     onClick = { showAddNodeDialog = true },
-                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                    text = { Text("添加节点") },
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary
-                )
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "添加节点")
+                }
             }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }

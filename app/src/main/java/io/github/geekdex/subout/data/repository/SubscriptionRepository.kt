@@ -33,6 +33,10 @@ class SubscriptionRepository(
         subscriptionDao.deleteById(id)
     }
 
+    suspend fun getNodesBySubscriptionId(subId: Long): List<Node> = withContext(Dispatchers.IO) {
+        nodeDao.getBySubscriptionIdSync(subId)
+    }
+
     suspend fun setSubscriptionEnabled(id: Long, enabled: Boolean) = withContext(Dispatchers.IO) {
         subscriptionDao.updateEnabled(id, enabled)
     }

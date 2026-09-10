@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.github.geekdex.subout.SuboutApplication
 import io.github.geekdex.subout.data.db.entities.Subscription
+import io.github.geekdex.subout.data.repository.ConfigRepository
+import io.github.geekdex.subout.data.repository.NodeRepository
 import io.github.geekdex.subout.data.repository.SubscriptionRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -20,7 +22,9 @@ data class SubscriptionsUiState(
 )
 
 class SubscriptionsViewModel(
-    private val subscriptionRepository: SubscriptionRepository
+    private val subscriptionRepository: SubscriptionRepository,
+    private val configRepository: ConfigRepository,
+    private val nodeRepository: NodeRepository
 ) : ViewModel() {
 
     private val _syncingSubIds = MutableStateFlow<Set<Long>>(emptySet())
@@ -70,8 +74,15 @@ class SubscriptionsViewModel(
     fun deleteSubscription(id: Long) {
         viewModelScope.launch {
             try {
+                val nodesToDelete = subscriptionRepository.getNodesBySubscriptionId(id)
+                val tags = nodesToDelete.map { it.tag }.toSet()
+                val resetList = configRepository.resetOutboundIfUsed(tags)
                 subscriptionRepository.deleteSubscription(id)
-                _message.value = "已删除订阅及相关节点"
+                if (resetList.isNotEmpty()) {
+                    _message.value = "已删除订阅，涉及的规则【${resetList.joinToString("、")}】已重置为直连 (direct)"
+                } else {
+                    _message.value = "已删除订阅及相关节点"
+                }
             } catch (e: Exception) {
                 _message.value = "删除失败: ${e.message}"
             }
@@ -90,7 +101,14 @@ class SubscriptionsViewModel(
             try {
                 val res = subscriptionRepository.syncSubscription(id)
                 if (res.isSuccess) {
-                    _message.value = "同步完成，获取到 ${res.getOrNull()} 个节点"
+                    val allNodes = nodeRepository.getAllNodesSync()
+                    val availableTags = allNodes.filter { it.enabled }.map { it.tag }.toSet()
+                    val resetList = configRepository.validateAndCleanMissingNodes(availableTags)
+                    if (resetList.isNotEmpty()) {
+                        _message.value = "同步完成，获取到 ${res.getOrNull()} 个节点。已失效节点【${resetList.joinToString("、")}】已自动重置为 direct"
+                    } else {
+                        _message.value = "同步完成，获取到 ${res.getOrNull()} 个节点"
+                    }
                 } else {
                     _message.value = "同步失败: ${res.exceptionOrNull()?.message}"
                 }
@@ -110,7 +128,12 @@ class SubscriptionsViewModel(
         fun Factory(): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return SubscriptionsViewModel(SuboutApplication.instance.subscriptionRepository) as T
+                val app = SuboutApplication.instance
+                return SubscriptionsViewModel(
+                    app.subscriptionRepository,
+                    app.configRepository,
+                    app.nodeRepository
+                ) as T
             }
         }
     }

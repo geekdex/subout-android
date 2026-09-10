@@ -186,6 +186,11 @@ class SimpleConfigViewModel(
         }
     }
 
+    private fun applyAndSave(newConfig: SimpleConfig) {
+        _currentConfig.value = newConfig
+        configRepository.saveConfig(newConfig)
+    }
+
     fun updateDns(
         mode: String = _currentConfig.value.dns.mode,
         domesticDns: String = _currentConfig.value.dns.domestic_dns,
@@ -196,7 +201,7 @@ class SimpleConfigViewModel(
             domestic_dns = domesticDns,
             foreign_dns = foreignDns
         )
-        _currentConfig.value = _currentConfig.value.copy(dns = updatedDns)
+        applyAndSave(_currentConfig.value.copy(dns = updatedDns))
     }
 
     fun updateInbound(
@@ -213,7 +218,7 @@ class SimpleConfigViewModel(
             tun_stack = tunStack,
             tun_auto_route = tunAutoRoute
         )
-        _currentConfig.value = _currentConfig.value.copy(inbound = updatedInbound)
+        applyAndSave(_currentConfig.value.copy(inbound = updatedInbound))
     }
 
     fun updateRoute(
@@ -245,7 +250,7 @@ class SimpleConfigViewModel(
             ai_outbound = aiOutbound,
             custom_groups = sanitizedGroups
         )
-        _currentConfig.value = _currentConfig.value.copy(route = updatedRoute)
+        applyAndSave(_currentConfig.value.copy(route = updatedRoute))
     }
 
     fun addCustomGroup(name: String, outbound: String = "") {
@@ -316,7 +321,7 @@ class SimpleConfigViewModel(
             route_ai = true,
             custom_groups = sanitized
         )
-        _currentConfig.value = _currentConfig.value.copy(route = updatedRoute)
+        applyAndSave(_currentConfig.value.copy(route = updatedRoute))
         _message.value = "已一键开启全部推荐规则 (Google/社交/AI/阻断QUIC)"
     }
 
@@ -336,7 +341,7 @@ class SimpleConfigViewModel(
             ai_outbound = "proxy",
             custom_groups = sanitized
         )
-        _currentConfig.value = _currentConfig.value.copy(route = updatedRoute)
+        applyAndSave(_currentConfig.value.copy(route = updatedRoute))
         _message.value = "已强制将 Google、社交与 AI 路由至代理出站"
     }
 
@@ -348,24 +353,12 @@ class SimpleConfigViewModel(
             level = level,
             timestamp = timestamp
         )
-        _currentConfig.value = _currentConfig.value.copy(log = updatedLog)
+        applyAndSave(_currentConfig.value.copy(log = updatedLog))
     }
 
     fun saveConfig() {
-        viewModelScope.launch {
-            configRepository.saveConfig(_currentConfig.value)
-            try {
-                val enabledNodes = nodeRepository.getEnabledNodes()
-                val jsonStr = withContext(Dispatchers.Default) {
-                    SimpleConfigGenerator.generatePrettyString(_currentConfig.value, enabledNodes)
-                }
-                SuboutApplication.instance.configServer.updateContent(jsonStr)
-                SuboutApplication.instance.configExporter.exportToFile(jsonStr)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-            _message.value = "配置已保存并立即生效"
-        }
+        applyAndSave(_currentConfig.value)
+        _message.value = "配置已实时保存并生效"
     }
 
     fun clearMessage() {

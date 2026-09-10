@@ -121,6 +121,65 @@ class ConfigRepository(context: Context) {
         return resetList
     }
 
+    /**
+     * 校验当前配置引用的节点是否仍存在于可用节点列表中（如订阅更新后某些节点下线或被更名）。
+     * 若引用了不存在的节点，自动重置为 "direct"。
+     */
+    fun validateAndCleanMissingNodes(availableNodeTags: Set<String>): List<String> {
+        val standardOutbounds = setOf("", "AUTO-Test", "proxy", "direct", "block")
+        val currentConfig = _configState.value
+        val route = currentConfig.route
+        val resetList = mutableListOf<String>()
+
+        var newGoogle = route.google_outbound
+        if (route.google_outbound !in standardOutbounds && route.google_outbound !in availableNodeTags) {
+            newGoogle = "direct"
+            resetList.add("Google 全家桶出站")
+        }
+
+        var newSocial = route.social_outbound
+        if (route.social_outbound !in standardOutbounds && route.social_outbound !in availableNodeTags) {
+            newSocial = "direct"
+            resetList.add("常用海外社交出站")
+        }
+
+        var newAi = route.ai_outbound
+        if (route.ai_outbound !in standardOutbounds && route.ai_outbound !in availableNodeTags) {
+            newAi = "direct"
+            resetList.add("热门 AI 应用出站")
+        }
+
+        var newDefault = route.default_outbound
+        if (route.default_outbound !in standardOutbounds && route.default_outbound !in availableNodeTags) {
+            newDefault = "direct"
+            resetList.add("默认出站")
+        }
+
+        val newGroups = route.customGroups.map { group ->
+            if (group.outbound !in standardOutbounds && group.outbound !in availableNodeTags) {
+                resetList.add("应用分组「${group.name}」")
+                group.copy(outbound = "direct")
+            } else {
+                group
+            }
+        }
+
+        if (resetList.isNotEmpty()) {
+            val updatedConfig = currentConfig.copy(
+                route = route.copy(
+                    google_outbound = newGoogle,
+                    social_outbound = newSocial,
+                    ai_outbound = newAi,
+                    default_outbound = newDefault,
+                    custom_groups = newGroups
+                )
+            )
+            saveConfig(updatedConfig)
+        }
+
+        return resetList
+    }
+
     companion object {
         private const val KEY_SIMPLE_CONFIG = "simple_config_json"
     }
