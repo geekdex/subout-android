@@ -56,6 +56,11 @@ class ConfigRepository(context: Context) {
                 usages.add("应用分组「${group.name}」")
             }
         }
+        route.customDomainGroups.forEach { group ->
+            if (group.outbound in tags) {
+                usages.add("域名分组「${group.name}」")
+            }
+        }
         return usages
     }
 
@@ -105,6 +110,16 @@ class ConfigRepository(context: Context) {
             }
         }
 
+        val newDomainGroups = route.customDomainGroups.map { group ->
+            if (group.outbound in tags) {
+                groupsChanged = true
+                resetList.add("域名分组「${group.name}」")
+                group.copy(outbound = "direct")
+            } else {
+                group
+            }
+        }
+
         if (resetList.isNotEmpty()) {
             val updatedConfig = currentConfig.copy(
                 route = route.copy(
@@ -112,7 +127,8 @@ class ConfigRepository(context: Context) {
                     social_outbound = newSocial,
                     ai_outbound = newAi,
                     default_outbound = newDefault,
-                    custom_groups = newGroups
+                    custom_groups = newGroups,
+                    custom_domain_groups = newDomainGroups
                 )
             )
             saveConfig(updatedConfig)
@@ -164,6 +180,15 @@ class ConfigRepository(context: Context) {
             }
         }
 
+        val newDomainGroups = route.customDomainGroups.map { group ->
+            if (group.outbound !in standardOutbounds && group.outbound !in availableNodeTags) {
+                resetList.add("域名分组「${group.name}」")
+                group.copy(outbound = "direct")
+            } else {
+                group
+            }
+        }
+
         if (resetList.isNotEmpty()) {
             val updatedConfig = currentConfig.copy(
                 route = route.copy(
@@ -171,7 +196,8 @@ class ConfigRepository(context: Context) {
                     social_outbound = newSocial,
                     ai_outbound = newAi,
                     default_outbound = newDefault,
-                    custom_groups = newGroups
+                    custom_groups = newGroups,
+                    custom_domain_groups = newDomainGroups
                 )
             )
             saveConfig(updatedConfig)

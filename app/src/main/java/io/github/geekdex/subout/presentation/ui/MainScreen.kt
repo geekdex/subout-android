@@ -56,6 +56,18 @@ fun MainScreen() {
         Screen.Export
     )
 
+    val navigateToTab: (String) -> Unit = { route ->
+        if (currentRoute != route) {
+            navController.navigate(route) {
+                popUpTo(navController.graph.findStartDestination().id) {
+                    saveState = true
+                }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+    }
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
@@ -66,17 +78,7 @@ fun MainScreen() {
                         icon = { Icon(screen.icon, contentDescription = screen.title) },
                         label = { Text(screen.title) },
                         selected = currentRoute == screen.route,
-                        onClick = {
-                            if (currentRoute != screen.route) {
-                                navController.navigate(screen.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            }
-                        }
+                        onClick = { navigateToTab(screen.route) }
                     )
                 }
             }
@@ -93,10 +95,10 @@ fun MainScreen() {
                 val dashboardViewModel: DashboardViewModel = viewModel(factory = DashboardViewModel.Factory())
                 DashboardScreen(
                     viewModel = dashboardViewModel,
-                    onNavigateToSubscriptions = { navController.navigate(Screen.Subscriptions.route) },
-                    onNavigateToNodes = { navController.navigate(Screen.Nodes.route) },
-                    onNavigateToConfig = { navController.navigate(Screen.Config.route) },
-                    onNavigateToExport = { navController.navigate(Screen.Export.route) }
+                    onNavigateToSubscriptions = { navigateToTab(Screen.Subscriptions.route) },
+                    onNavigateToNodes = { navigateToTab(Screen.Nodes.route) },
+                    onNavigateToConfig = { navigateToTab(Screen.Config.route) },
+                    onNavigateToExport = { navigateToTab(Screen.Export.route) }
                 )
             }
 
@@ -118,7 +120,7 @@ fun MainScreen() {
                 val configViewModel: SimpleConfigViewModel = viewModel(factory = SimpleConfigViewModel.Factory())
                 SimpleConfigScreen(
                     viewModel = configViewModel,
-                    onNavigateToExport = { navController.navigate(Screen.Export.route) }
+                    onNavigateToExport = { navigateToTab(Screen.Export.route) }
                 )
             }
 

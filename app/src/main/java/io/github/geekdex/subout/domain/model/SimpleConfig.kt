@@ -39,7 +39,10 @@ data class SimpleRouteConfig(
     val ai_outbound: String? = "",
 
     // 自定义应用分组 (一个应用仅属于一个分组，互斥去重)
-    val custom_groups: List<CustomAppGroup>? = emptyList()
+    val custom_groups: List<CustomAppGroup>? = emptyList(),
+
+    // 自定义域名后缀分组 (一个域名仅属于一个分组，严格互斥、防冗余覆盖)
+    val custom_domain_groups: List<CustomDomainGroup>? = emptyList()
 ) {
     val isBlockQuic: Boolean get() = block_quic ?: true
     val isRouteGoogle: Boolean get() = route_google ?: true
@@ -49,17 +52,30 @@ data class SimpleRouteConfig(
     val socialOutbound: String get() = social_outbound ?: ""
     val aiOutbound: String get() = ai_outbound ?: ""
     val customGroups: List<CustomAppGroup> get() = custom_groups ?: emptyList()
+    val customDomainGroups: List<CustomDomainGroup> get() = custom_domain_groups ?: emptyList()
 }
 
 data class CustomAppGroup(
     val id: String = java.util.UUID.randomUUID().toString(),
-    val name: String = "自定义分组",
+    val name: String = "自定义应用分组",
     val outbound: String? = "", // 留空则跟从 default_outbound / proxy
     val package_names: List<String>? = emptyList(),
     val enabled: Boolean? = true
 ) {
     val outboundTag: String get() = outbound ?: ""
     val packageNames: List<String> get() = package_names ?: emptyList()
+    val isEnabled: Boolean get() = enabled ?: true
+}
+
+data class CustomDomainGroup(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val name: String = "自定义域名分组",
+    val outbound: String? = "", // 留空则跟从 default_outbound / proxy
+    val domain_suffixes: List<String>? = emptyList(),
+    val enabled: Boolean? = true
+) {
+    val outboundTag: String get() = outbound ?: ""
+    val domainSuffixes: List<String> get() = domain_suffixes ?: emptyList()
     val isEnabled: Boolean get() = enabled ?: true
 }
 

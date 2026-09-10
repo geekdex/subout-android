@@ -3,6 +3,7 @@ package io.github.geekdex.subout
 import io.github.geekdex.subout.data.db.entities.Node
 import io.github.geekdex.subout.domain.generator.SimpleConfigGenerator
 import io.github.geekdex.subout.domain.model.AppRulePresets
+import io.github.geekdex.subout.domain.model.CustomDomainGroup
 import io.github.geekdex.subout.domain.model.SimpleConfig
 import io.github.geekdex.subout.domain.model.SimpleDnsConfig
 import io.github.geekdex.subout.domain.model.SimpleInboundConfig
@@ -419,6 +420,70 @@ class SimpleConfigGeneratorTest {
         assertNotNull(aiPkgRoute)
         // Fallback to targetProxy ("AUTO-Test" when nodes are present)
         assertEquals("AUTO-Test", aiPkgRoute!!.asJsonObject.get("outbound").asString)
+    }
+
+    @Test
+    fun testCustomDomainGroupsGeneration() {
+        val cfg = SimpleConfig(
+            dns = SimpleDnsConfig(mode = "preset_fakeip"),
+            route = SimpleRouteConfig(
+                mode = "smart",
+                custom_domain_groups = listOf(
+                    CustomDomainGroup(
+                        id = "domain-g1",
+                        name = "海外开发者",
+                        outbound = "direct",
+                        domain_suffixes = listOf("github.com", "githubusercontent.com"),
+                        enabled = true
+                    ),
+                    CustomDomainGroup(
+                        id = "domain-g2",
+                        name = "游戏与加速",
+                        outbound = "🇸🇬 新加坡-02-BGP",
+                        domain_suffixes = listOf("steamcommunity.com", "epicgames.com"),
+                        enabled = true
+                    )
+                )
+            )
+        )
+        val dummyNodes = listOf(
+            Node(1, 1, "🇭🇰 香港-01-IEPL", "trojan", "hk.com", 443, "{}", true),
+            Node(2, 1, "🇸🇬 新加坡-02-BGP", "vless", "sg.com", 443, "{}", true)
+        )
+
+        val json = SimpleConfigGenerator.generate(cfg, dummyNodes)
+        val dnsRules = json.getAsJsonObject("dns").getAsJsonArray("rules")
+        val routeRules = json.getAsJsonObject("route").getAsJsonArray("rules")
+
+        // 1. Group 1: direct -> route is direct, DNS is dns_local
+        val g1Route = routeRules.firstOrNull {
+            val suffixes = it.asJsonObject.getAsJsonArray("domain_suffix")
+            suffixes != null && suffixes.any { s -> s.asString == "github.com" }
+        }
+        assertNotNull("Group 1 domain_suffix route rule must exist", g1Route)
+        assertEquals("direct", g1Route!!.asJsonObject.get("outbound").asString)
+
+        val g1Dns = dnsRules.firstOrNull {
+            val suffixes = it.asJsonObject.getAsJsonArray("domain_suffix")
+            suffixes != null && suffixes.any { s -> s.asString == "github.com" }
+        }
+        assertNotNull("Group 1 domain_suffix DNS rule must exist", g1Dns)
+        assertEquals("dns_local", g1Dns!!.asJsonObject.get("server").asString)
+
+        // 2. Group 2: specific proxy node -> route is 🇸🇬 新加坡-02-BGP, DNS is dns_fakeip
+        val g2Route = routeRules.firstOrNull {
+            val suffixes = it.asJsonObject.getAsJsonArray("domain_suffix")
+            suffixes != null && suffixes.any { s -> s.asString == "steamcommunity.com" }
+        }
+        assertNotNull("Group 2 domain_suffix route rule must exist", g2Route)
+        assertEquals("🇸🇬 新加坡-02-BGP", g2Route!!.asJsonObject.get("outbound").asString)
+
+        val g2Dns = dnsRules.firstOrNull {
+            val suffixes = it.asJsonObject.getAsJsonArray("domain_suffix")
+            suffixes != null && suffixes.any { s -> s.asString == "steamcommunity.com" }
+        }
+        assertNotNull("Group 2 domain_suffix DNS rule must exist", g2Dns)
+        assertEquals("dns_fakeip", g2Dns!!.asJsonObject.get("server").asString)
     }
 
     @Test

@@ -177,18 +177,18 @@ fun DashboardScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 QuickActionCard(
-                    title = "配置导出",
-                    subtitle = "服务同步 / 文件导出",
+                    title = "规则配置",
+                    subtitle = "DNS / 路由分流 / 分组规则",
+                    icon = Icons.Default.Tune,
+                    modifier = Modifier.weight(1f),
+                    onClick = onNavigateToConfig
+                )
+                QuickActionCard(
+                    title = "服务与导出",
+                    subtitle = "SFA 导入 / 本地服务 / 文件",
                     icon = Icons.Default.Download,
                     modifier = Modifier.weight(1f),
                     onClick = onNavigateToExport
-                )
-                QuickActionCard(
-                    title = "节点测速",
-                    subtitle = "批量测速与筛选",
-                    icon = Icons.Default.Speed,
-                    modifier = Modifier.weight(1f),
-                    onClick = onNavigateToNodes
                 )
             }
 
@@ -197,15 +197,15 @@ fun DashboardScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 QuickActionCard(
-                    title = "小白配置",
-                    subtitle = "DNS/分流/入站设置",
-                    icon = Icons.Default.Tune,
+                    title = "节点管理",
+                    subtitle = "批量测速与可用性",
+                    icon = Icons.Default.Speed,
                     modifier = Modifier.weight(1f),
-                    onClick = onNavigateToConfig
+                    onClick = onNavigateToNodes
                 )
                 QuickActionCard(
-                    title = "管理订阅",
-                    subtitle = "添加/编辑订阅源",
+                    title = "订阅管理",
+                    subtitle = "添加 / 编辑 / 一键同步",
                     icon = Icons.Default.Add,
                     modifier = Modifier.weight(1f),
                     onClick = onNavigateToSubscriptions

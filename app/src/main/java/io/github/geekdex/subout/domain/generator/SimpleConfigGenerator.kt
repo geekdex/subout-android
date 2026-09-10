@@ -167,6 +167,19 @@ object SimpleConfigGenerator {
             })
         }
 
+        // 1.1 Custom Domain Groups DNS rules
+        val enabledCustomDomainGroups = routeConfig.customDomainGroups.filter { it.isEnabled && it.domainSuffixes.isNotEmpty() }
+        for (group in enabledCustomDomainGroups) {
+            val groupTarget = resolveOutbound(group.outboundTag, proxyNodeTags, hasNodes, targetProxy)
+            val dnsServer = getDnsServerForTarget(groupTarget, isFakeIpMode, hasNodes)
+            val domainArr = JsonArray()
+            group.domainSuffixes.forEach { domainArr.add(it) }
+            rules.add(JsonObject().apply {
+                add("domain_suffix", domainArr)
+                addProperty("server", dnsServer)
+            })
+        }
+
         // 2. Google Preset DNS rules
         if (routeConfig.isRouteGoogle) {
             val googleTarget = resolveOutbound(routeConfig.googleOutbound, proxyNodeTags, hasNodes, targetProxy)
@@ -491,6 +504,18 @@ object SimpleConfigGenerator {
             group.packageNames.forEach { pkgArr.add(it) }
             rules.add(JsonObject().apply {
                 add("package_name", pkgArr)
+                addProperty("outbound", groupTarget)
+            })
+        }
+
+        // 1.1 Custom Domain Groups routing
+        val enabledCustomDomainGroups = routeConfig.customDomainGroups.filter { it.isEnabled && it.domainSuffixes.isNotEmpty() }
+        for (group in enabledCustomDomainGroups) {
+            val groupTarget = resolveOutbound(group.outboundTag, proxyNodeTags, hasNodes, targetProxy)
+            val domainArr = JsonArray()
+            group.domainSuffixes.forEach { domainArr.add(it) }
+            rules.add(JsonObject().apply {
+                add("domain_suffix", domainArr)
                 addProperty("outbound", groupTarget)
             })
         }

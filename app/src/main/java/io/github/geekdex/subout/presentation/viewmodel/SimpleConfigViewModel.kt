@@ -13,6 +13,8 @@ import io.github.geekdex.subout.data.repository.NodeRepository
 import io.github.geekdex.subout.domain.generator.SimpleConfigGenerator
 import io.github.geekdex.subout.domain.model.AppRulePresets
 import io.github.geekdex.subout.domain.model.CustomAppGroup
+import io.github.geekdex.subout.domain.model.CustomDomainGroup
+import io.github.geekdex.subout.domain.model.DomainUtils
 import io.github.geekdex.subout.domain.model.InstalledAppInfo
 import io.github.geekdex.subout.domain.model.SimpleConfig
 import io.github.geekdex.subout.domain.model.SimpleDnsConfig
@@ -34,6 +36,11 @@ data class SimpleConfigUiState(
     val installedApps: List<InstalledAppInfo> = emptyList(),
     val isLoadingApps: Boolean = false,
     val message: String? = null
+)
+
+data class DomainBatchAddResult(
+    val addedCount: Int,
+    val errors: List<String>
 )
 
 class SimpleConfigViewModel(
@@ -143,6 +150,10 @@ class SimpleConfigViewModel(
      * 计算所有已被占用的应用包名映射 (包名 -> 占用来源名称)
      * 用于保证一个应用只能属于一个分组/预设，避免冗余和规则冲突
      */
+    /**
+     * 计算所有已被占用的应用包名映射 (包名 -> 占用来源名称)
+     * 用于保证一个应用只能属于一个分组/预设，避免冗余和规则冲突
+     */
     fun getOccupiedAppMap(excludeGroupId: String? = null): Map<String, String> {
         val route = _currentConfig.value.route
         val map = mutableMapOf<String, String>()
@@ -166,6 +177,88 @@ class SimpleConfigViewModel(
         return map
     }
 
+    /**
+     * 计算所有已被占用的域名后缀映射 (规范化域名 -> 占用来源名称)
+     * 用于保证一个域名只能属于一个分组/预设，避免冗余和规则冲突
+     */
+    fun getOccupiedDomainMap(excludeGroupId: String? = null): Map<String, String> {
+        val route = _currentConfig.value.route
+        val map = mutableMapOf<String, String>()
+
+        if (route.isRouteGoogle) {
+            AppRulePresets.google.domainSuffixes.forEach { d ->
+                val norm = DomainUtils.normalize(d)
+                if (norm.isNotEmpty()) map[norm] = "Google 全家桶"
+            }
+        }
+        if (route.isRouteSocial) {
+            AppRulePresets.social.domainSuffixes.forEach { d ->
+                val norm = DomainUtils.normalize(d)
+                if (norm.isNotEmpty()) map[norm] = "海外社交应用"
+            }
+        }
+        if (route.isRouteAi) {
+            AppRulePresets.ai.domainSuffixes.forEach { d ->
+                val norm = DomainUtils.normalize(d)
+                if (norm.isNotEmpty()) map[norm] = "热门 AI 应用"
+            }
+        }
+        route.customDomainGroups.forEach { g ->
+            if (g.id != excludeGroupId) {
+                g.domainSuffixes.forEach { d ->
+                    val norm = DomainUtils.normalize(d)
+                    if (norm.isNotEmpty()) map[norm] = "分组: ${g.name}"
+                }
+            }
+        }
+        return map
+    }
+
+    /**
+     * 校验待添加的域名是否与已有预设规则或分组冲突（含严格重复与子域名/父域名层级冗余冲突）
+     * 返回 null 表示无冲突且合法，返回 String 表示具体冲突原因
+     */
+    fun checkDomainConflict(candidate: String, targetGroupId: String? = null): String? {
+        val norm = DomainUtils.normalize(candidate)
+        if (norm.isEmpty()) return "域名不能为空"
+        if (!DomainUtils.isValidDomain(norm)) return "域名格式不合法 (例如 example.com)"
+
+        val occupied = getOccupiedDomainMap(excludeGroupId = targetGroupId)
+        if (occupied.containsKey(norm)) {
+            return "该域名已被「${occupied[norm]}」占用"
+        }
+
+        // 检查与外部占用域名的层级覆盖关系
+        for ((existing, owner) in occupied) {
+            if (DomainUtils.isSubdomain(norm, existing)) {
+                return "已被「$owner」的父域名 $existing 包含覆盖"
+            }
+            if (DomainUtils.isSubdomain(existing, norm)) {
+                return "与「$owner」中更具体的子域名 $existing 冲突"
+            }
+        }
+
+        // 检查与目标组内现有域名的覆盖关系
+        if (targetGroupId != null) {
+            val targetGroup = _currentConfig.value.route.customDomainGroups.find { it.id == targetGroupId }
+            if (targetGroup != null) {
+                for (existing in targetGroup.domainSuffixes.map { DomainUtils.normalize(it) }) {
+                    if (existing == norm) {
+                        return "当前分组中已包含此域名"
+                    }
+                    if (DomainUtils.isSubdomain(norm, existing)) {
+                        return "已被当前组内已有父域名 $existing 包含覆盖"
+                    }
+                    if (DomainUtils.isSubdomain(existing, norm)) {
+                        return "与当前组内更具体的子域名 $existing 冲突"
+                    }
+                }
+            }
+        }
+
+        return null
+    }
+
     private fun sanitizeCustomGroups(
         groups: List<CustomAppGroup>,
         routeGoogle: Boolean,
@@ -183,6 +276,34 @@ class SimpleConfigViewModel(
                 pkg !in presetOccupied && seen.add(pkg)
             }
             g.copy(package_names = filtered)
+        }
+    }
+
+    private fun sanitizeCustomDomainGroups(
+        groups: List<CustomDomainGroup>,
+        routeGoogle: Boolean,
+        routeSocial: Boolean,
+        routeAi: Boolean
+    ): List<CustomDomainGroup> {
+        val presetOccupied = mutableSetOf<String>()
+        if (routeGoogle) presetOccupied.addAll(AppRulePresets.google.domainSuffixes.map { DomainUtils.normalize(it) })
+        if (routeSocial) presetOccupied.addAll(AppRulePresets.social.domainSuffixes.map { DomainUtils.normalize(it) })
+        if (routeAi) presetOccupied.addAll(AppRulePresets.ai.domainSuffixes.map { DomainUtils.normalize(it) })
+
+        val seen = mutableSetOf<String>()
+        return groups.map { g ->
+            val filtered = mutableListOf<String>()
+            for (d in g.domainSuffixes) {
+                val norm = DomainUtils.normalize(d)
+                if (norm.isNotEmpty() && DomainUtils.isValidDomain(norm)) {
+                    // 不能被预设父域名覆盖
+                    val conflictWithPreset = presetOccupied.any { DomainUtils.isSubdomain(norm, it) || DomainUtils.isSubdomain(it, norm) }
+                    if (!conflictWithPreset && seen.add(norm)) {
+                        filtered.add(norm)
+                    }
+                }
+            }
+            g.copy(domain_suffixes = filtered)
         }
     }
 
@@ -233,9 +354,11 @@ class SimpleConfigViewModel(
         socialOutbound: String = _currentConfig.value.route.socialOutbound,
         routeAi: Boolean = _currentConfig.value.route.isRouteAi,
         aiOutbound: String = _currentConfig.value.route.aiOutbound,
-        customGroups: List<CustomAppGroup> = _currentConfig.value.route.customGroups
+        customGroups: List<CustomAppGroup> = _currentConfig.value.route.customGroups,
+        customDomainGroups: List<CustomDomainGroup> = _currentConfig.value.route.customDomainGroups
     ) {
         val sanitizedGroups = sanitizeCustomGroups(customGroups, routeGoogle, routeSocial, routeAi)
+        val sanitizedDomainGroups = sanitizeCustomDomainGroups(customDomainGroups, routeGoogle, routeSocial, routeAi)
         val updatedRoute = _currentConfig.value.route.copy(
             mode = mode,
             block_ads = blockAds,
@@ -248,7 +371,8 @@ class SimpleConfigViewModel(
             social_outbound = socialOutbound,
             route_ai = routeAi,
             ai_outbound = aiOutbound,
-            custom_groups = sanitizedGroups
+            custom_groups = sanitizedGroups,
+            custom_domain_groups = sanitizedDomainGroups
         )
         applyAndSave(_currentConfig.value.copy(route = updatedRoute))
     }
@@ -309,9 +433,120 @@ class SimpleConfigViewModel(
         updateRoute(customGroups = updated)
     }
 
+    // ========== 域名后缀分组操作 ==========
+
+    fun addCustomDomainGroup(name: String, outbound: String = "") {
+        val currentRoute = _currentConfig.value.route
+        val newGroup = CustomDomainGroup(
+            id = java.util.UUID.randomUUID().toString(),
+            name = name.ifBlank { "自定义域名分组 ${currentRoute.customDomainGroups.size + 1}" },
+            outbound = outbound,
+            domain_suffixes = emptyList(),
+            enabled = true
+        )
+        val updated = currentRoute.customDomainGroups + newGroup
+        updateRoute(customDomainGroups = updated)
+        _message.value = "已创建域名分组: ${newGroup.name}"
+    }
+
+    fun updateCustomDomainGroupName(groupId: String, newName: String) {
+        val currentRoute = _currentConfig.value.route
+        val updated = currentRoute.customDomainGroups.map { g ->
+            if (g.id == groupId) g.copy(name = newName) else g
+        }
+        updateRoute(customDomainGroups = updated)
+    }
+
+    fun updateCustomDomainGroupOutbound(groupId: String, outbound: String) {
+        val currentRoute = _currentConfig.value.route
+        val updated = currentRoute.customDomainGroups.map { g ->
+            if (g.id == groupId) g.copy(outbound = outbound) else g
+        }
+        updateRoute(customDomainGroups = updated)
+    }
+
+    fun updateCustomDomainGroupEnabled(groupId: String, enabled: Boolean) {
+        val currentRoute = _currentConfig.value.route
+        val updated = currentRoute.customDomainGroups.map { g ->
+            if (g.id == groupId) g.copy(enabled = enabled) else g
+        }
+        updateRoute(customDomainGroups = updated)
+    }
+
+    fun deleteCustomDomainGroup(groupId: String) {
+        val currentRoute = _currentConfig.value.route
+        val groupToDelete = currentRoute.customDomainGroups.find { it.id == groupId }
+        val updated = currentRoute.customDomainGroups.filter { it.id != groupId }
+        updateRoute(customDomainGroups = updated)
+        _message.value = "已删除域名分组${if (groupToDelete != null) ": " + groupToDelete.name else ""}"
+    }
+
+    fun addDomainsToGroup(groupId: String, rawInput: String): DomainBatchAddResult {
+        val candidateList = DomainUtils.parseDomains(rawInput)
+        if (candidateList.isEmpty()) {
+            return DomainBatchAddResult(addedCount = 0, errors = listOf("未识别到有效的域名输入"))
+        }
+
+        val currentRoute = _currentConfig.value.route
+        val targetGroup = currentRoute.customDomainGroups.find { it.id == groupId }
+            ?: return DomainBatchAddResult(addedCount = 0, errors = listOf("目标分组不存在"))
+
+        val currentDomains = targetGroup.domainSuffixes.map { DomainUtils.normalize(it) }.toMutableList()
+        val added = mutableListOf<String>()
+        val errors = mutableListOf<String>()
+
+        for (candidate in candidateList) {
+            val conflict = checkDomainConflict(candidate, groupId)
+            if (conflict != null) {
+                errors.add("$candidate: $conflict")
+            } else {
+                val intraConflict = added.firstOrNull { DomainUtils.isSubdomain(candidate, it) || DomainUtils.isSubdomain(it, candidate) }
+                if (intraConflict != null) {
+                    errors.add("$candidate: 与本次批量添加中的 $intraConflict 冲突")
+                } else {
+                    added.add(candidate)
+                    currentDomains.add(candidate)
+                }
+            }
+        }
+
+        if (added.isNotEmpty()) {
+            val updated = currentRoute.customDomainGroups.map { g ->
+                if (g.id == groupId) g.copy(domain_suffixes = currentDomains) else g
+            }
+            updateRoute(customDomainGroups = updated)
+            _message.value = "已成功添加 ${added.size} 个域名后缀"
+        }
+
+        return DomainBatchAddResult(addedCount = added.size, errors = errors)
+    }
+
+    fun removeDomainFromGroup(groupId: String, domain: String) {
+        val norm = DomainUtils.normalize(domain)
+        val currentRoute = _currentConfig.value.route
+        val updated = currentRoute.customDomainGroups.map { g ->
+            if (g.id == groupId) {
+                g.copy(domain_suffixes = g.domainSuffixes.filter { DomainUtils.normalize(it) != norm })
+            } else {
+                g
+            }
+        }
+        updateRoute(customDomainGroups = updated)
+    }
+
+    fun updateGroupDomains(groupId: String, newDomains: List<String>) {
+        val sanitized = newDomains.map { DomainUtils.normalize(it) }.filter { it.isNotEmpty() && DomainUtils.isValidDomain(it) }.distinct()
+        val currentRoute = _currentConfig.value.route
+        val updated = currentRoute.customDomainGroups.map { g ->
+            if (g.id == groupId) g.copy(domain_suffixes = sanitized) else g
+        }
+        updateRoute(customDomainGroups = updated)
+    }
+
     fun enableAllRecommended() {
         val currentRoute = _currentConfig.value.route
         val sanitized = sanitizeCustomGroups(currentRoute.customGroups, true, true, true)
+        val sanitizedDomainGroups = sanitizeCustomDomainGroups(currentRoute.customDomainGroups, true, true, true)
         val updatedRoute = currentRoute.copy(
             block_ads = true,
             bypass_lan = true,
@@ -319,7 +554,8 @@ class SimpleConfigViewModel(
             route_google = true,
             route_social = true,
             route_ai = true,
-            custom_groups = sanitized
+            custom_groups = sanitized,
+            custom_domain_groups = sanitizedDomainGroups
         )
         applyAndSave(_currentConfig.value.copy(route = updatedRoute))
         _message.value = "已一键开启全部推荐规则 (Google/社交/AI/阻断QUIC)"
@@ -328,6 +564,7 @@ class SimpleConfigViewModel(
     fun forceAllProxy() {
         val currentRoute = _currentConfig.value.route
         val sanitized = sanitizeCustomGroups(currentRoute.customGroups, true, true, true)
+        val sanitizedDomainGroups = sanitizeCustomDomainGroups(currentRoute.customDomainGroups, true, true, true)
         val updatedRoute = currentRoute.copy(
             mode = "smart",
             block_ads = true,
@@ -339,7 +576,8 @@ class SimpleConfigViewModel(
             social_outbound = "proxy",
             route_ai = true,
             ai_outbound = "proxy",
-            custom_groups = sanitized
+            custom_groups = sanitized,
+            custom_domain_groups = sanitizedDomainGroups
         )
         applyAndSave(_currentConfig.value.copy(route = updatedRoute))
         _message.value = "已强制将 Google、社交与 AI 路由至代理出站"
