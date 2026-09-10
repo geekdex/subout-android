@@ -54,4 +54,20 @@ class NodeRepository(
     suspend fun setNodesEnabled(ids: List<Long>, enabled: Boolean): Int = withContext(Dispatchers.IO) {
         if (ids.isEmpty()) 0 else nodeDao.updateNodesEnabled(ids, enabled)
     }
+
+    suspend fun insertNode(node: Node): Long = withContext(Dispatchers.IO) {
+        nodeDao.insert(node)
+    }
+
+    suspend fun getNodesByIds(ids: List<Long>): List<Node> = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) emptyList() else nodeDao.getNodesByIdsSync(ids)
+    }
+
+    suspend fun getTimeoutNodes(): List<Node> = withContext(Dispatchers.IO) {
+        nodeDao.getTimeoutNodesSync()
+    }
+
+    suspend fun getDisabledNodes(): List<Node> = withContext(Dispatchers.IO) {
+        nodeDao.getDisabledNodesSync()
+    }
 }

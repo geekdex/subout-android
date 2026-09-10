@@ -5,7 +5,12 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.github.geekdex.subout.SuboutApplication
 import io.github.geekdex.subout.data.db.entities.Node
+import io.github.geekdex.subout.data.repository.ConfigRepository
 import io.github.geekdex.subout.data.repository.NodeRepository
+import io.github.geekdex.subout.domain.generator.ConfigExporter
+import io.github.geekdex.subout.domain.generator.SimpleConfigGenerator
+import io.github.geekdex.subout.domain.model.ManualNodeConfig
+import io.github.geekdex.subout.domain.server.ConfigServer
 import io.github.geekdex.subout.domain.tester.NodeTester
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -45,7 +50,10 @@ data class NodesUiState(
 )
 
 class NodesViewModel(
-    private val nodeRepository: NodeRepository
+    private val nodeRepository: NodeRepository,
+    private val configRepository: ConfigRepository,
+    private val configExporter: ConfigExporter,
+    private val configServer: ConfigServer
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
@@ -269,14 +277,36 @@ class NodesViewModel(
         _selectedNodeIds.value = emptySet()
     }
 
+    fun checkNodeUsage(tags: Set<String>): List<String> {
+        return configRepository.checkNodeUsage(tags)
+    }
+
+    private suspend fun syncExportAfterReset(resetList: List<String>) {
+        if (resetList.isNotEmpty()) {
+            val currentConfig = configRepository.configState.value
+            val currentNodes = nodeRepository.getEnabledNodes()
+            val jsonStr = SimpleConfigGenerator.generatePrettyString(currentConfig, currentNodes)
+            configServer.updateContent(jsonStr)
+            configExporter.exportToFile(jsonStr)
+        }
+    }
+
     fun deleteSelectedNodes() {
         val ids = _selectedNodeIds.value.toList()
         if (ids.isEmpty()) return
 
         viewModelScope.launch {
+            val nodesToDelete = nodeRepository.getNodesByIds(ids)
+            val tags = nodesToDelete.map { it.tag }.toSet()
+            val resetList = configRepository.resetOutboundIfUsed(tags)
             val count = nodeRepository.deleteNodesByIds(ids)
             exitSelectionMode()
-            _message.value = "已删除 $count 个节点"
+            syncExportAfterReset(resetList)
+            if (resetList.isNotEmpty()) {
+                _message.value = "已删除 $count 个节点，涉及的【${resetList.joinToString("、")}】已自动重置为直连 (direct)"
+            } else {
+                _message.value = "已删除 $count 个节点"
+            }
         }
     }
 
@@ -294,22 +324,70 @@ class NodesViewModel(
 
     fun deleteTimeoutNodes() {
         viewModelScope.launch {
+            val timeoutNodes = nodeRepository.getTimeoutNodes()
+            val tags = timeoutNodes.map { it.tag }.toSet()
+            val resetList = configRepository.resetOutboundIfUsed(tags)
             val count = nodeRepository.deleteTimeoutNodes()
-            _message.value = if (count > 0) "已删除 $count 个超时节点" else "暂无超时节点需要清理"
+            syncExportAfterReset(resetList)
+            if (count > 0) {
+                if (resetList.isNotEmpty()) {
+                    _message.value = "已删除 $count 个超时节点，涉及的【${resetList.joinToString("、")}】已自动重置为直连 (direct)"
+                } else {
+                    _message.value = "已删除 $count 个超时节点"
+                }
+            } else {
+                _message.value = "暂无超时节点需要清理"
+            }
         }
     }
 
     fun deleteDisabledNodes() {
         viewModelScope.launch {
+            val disabledNodes = nodeRepository.getDisabledNodes()
+            val tags = disabledNodes.map { it.tag }.toSet()
+            val resetList = configRepository.resetOutboundIfUsed(tags)
             val count = nodeRepository.deleteDisabledNodes()
-            _message.value = if (count > 0) "已删除 $count 个已禁用节点" else "暂无已禁用节点需要清理"
+            syncExportAfterReset(resetList)
+            if (count > 0) {
+                if (resetList.isNotEmpty()) {
+                    _message.value = "已删除 $count 个已禁用节点，涉及的【${resetList.joinToString("、")}】已自动重置为直连 (direct)"
+                } else {
+                    _message.value = "已删除 $count 个已禁用节点"
+                }
+            } else {
+                _message.value = "暂无已禁用节点需要清理"
+            }
         }
     }
 
     fun deleteNode(node: Node) {
         viewModelScope.launch {
+            val resetList = configRepository.resetOutboundIfUsed(setOf(node.tag))
             nodeRepository.deleteNode(node)
-            _message.value = "已删除节点「${node.tag}」"
+            syncExportAfterReset(resetList)
+            if (resetList.isNotEmpty()) {
+                _message.value = "已删除节点「${node.tag}」，所引用的【${resetList.joinToString("、")}】已自动重置为直连 (direct)"
+            } else {
+                _message.value = "已删除节点「${node.tag}」"
+            }
+        }
+    }
+
+    fun addManualNode(config: ManualNodeConfig, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val existingNodes = nodeRepository.getAllNodesSync()
+                if (existingNodes.any { it.tag.equals(config.tag.trim(), ignoreCase = true) }) {
+                    onResult(false, "节点名称「${config.tag.trim()}」已存在，请使用其他名称")
+                    return@launch
+                }
+                val node = config.toNode()
+                nodeRepository.insertNode(node)
+                _message.value = "已成功添加节点「${config.tag}」"
+                onResult(true, "添加成功")
+            } catch (e: Exception) {
+                onResult(false, "添加失败: ${e.message}")
+            }
         }
     }
 
@@ -321,7 +399,13 @@ class NodesViewModel(
         fun Factory(): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return NodesViewModel(SuboutApplication.instance.nodeRepository) as T
+                val app = SuboutApplication.instance
+                return NodesViewModel(
+                    app.nodeRepository,
+                    app.configRepository,
+                    app.configExporter,
+                    app.configServer
+                ) as T
             }
         }
     }

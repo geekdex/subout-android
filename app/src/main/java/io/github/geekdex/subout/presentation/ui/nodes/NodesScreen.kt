@@ -26,11 +26,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Deselect
@@ -51,7 +53,9 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -62,10 +66,13 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import com.google.gson.JsonParser
+import io.github.geekdex.subout.domain.model.ManualVlessConfig
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -104,6 +111,7 @@ fun NodesScreen(
     var showDeleteTimeoutConfirm by remember { mutableStateOf(false) }
     var showDeleteSelectedConfirm by remember { mutableStateOf(false) }
     var nodeToDelete by remember { mutableStateOf<Node?>(null) }
+    var showAddNodeDialog by remember { mutableStateOf(false) }
 
     val timeoutCount = remember(uiState.rawNodes) { uiState.rawNodes.count { it.isTimeout } }
     val disabledCount = remember(uiState.rawNodes) { uiState.rawNodes.count { !it.enabled } }
@@ -295,6 +303,17 @@ fun NodesScreen(
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.surface
                     )
+                )
+            }
+        },
+        floatingActionButton = {
+            if (!uiState.isSelectionMode) {
+                ExtendedFloatingActionButton(
+                    onClick = { showAddNodeDialog = true },
+                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                    text = { Text("添加节点") },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
                 )
             }
         },
@@ -562,10 +581,44 @@ fun NodesScreen(
 
     // 单节点删除确认对话框
     nodeToDelete?.let { node ->
+        val usages = remember(node) { viewModel.checkNodeUsage(setOf(node.tag)) }
         AlertDialog(
             onDismissRequest = { nodeToDelete = null },
             title = { Text("删除节点") },
-            text = { Text("确定要删除节点「${node.tag}」吗？删除后无法恢复。") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("确定要删除节点「${node.tag}」吗？删除后无法恢复。")
+                    if (usages.isNotEmpty()) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = "⚠️ 提示：该节点正在以下规则中作为出站使用：",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                                usages.forEach { usage ->
+                                    Text(
+                                        text = "• $usage",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "删除后，上述规则出站将自动重置为「直连 (direct)」。",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                    }
+                }
+            },
             confirmButton = {
                 Button(
                     onClick = {
@@ -590,10 +643,47 @@ fun NodesScreen(
 
     // 清理超时节点确认对话框
     if (showDeleteTimeoutConfirm) {
+        val timeoutNodes = remember(uiState.rawNodes) { uiState.rawNodes.filter { it.isTimeout } }
+        val timeoutUsages = remember(timeoutNodes) {
+            viewModel.checkNodeUsage(timeoutNodes.map { it.tag }.toSet())
+        }
         AlertDialog(
             onDismissRequest = { showDeleteTimeoutConfirm = false },
             title = { Text("清理超时节点") },
-            text = { Text("检测到当前有 $timeoutCount 个连接超时或不可达的节点，确定要全部删除吗？删除后无法恢复。") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("检测到当前有 $timeoutCount 个连接超时或不可达的节点，确定要全部删除吗？删除后无法恢复。")
+                    if (timeoutUsages.isNotEmpty()) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = "⚠️ 提示：其中包含正在配置中使用的节点，涉及规则：",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                                timeoutUsages.forEach { usage ->
+                                    Text(
+                                        text = "• $usage",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "删除后，上述规则出站将自动重置为「直连 (direct)」。",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                    }
+                }
+            },
             confirmButton = {
                 Button(
                     onClick = {
@@ -616,10 +706,49 @@ fun NodesScreen(
     // 批量删除选中节点确认对话框
     if (showDeleteSelectedConfirm) {
         val count = uiState.selectedNodeIds.size
+        val selectedNodes = remember(uiState.selectedNodeIds, uiState.rawNodes) {
+            uiState.rawNodes.filter { it.id in uiState.selectedNodeIds }
+        }
+        val selectedUsages = remember(selectedNodes) {
+            viewModel.checkNodeUsage(selectedNodes.map { it.tag }.toSet())
+        }
         AlertDialog(
             onDismissRequest = { showDeleteSelectedConfirm = false },
             title = { Text("批量删除节点") },
-            text = { Text("确定要删除选中的 $count 个节点吗？删除后无法恢复。") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("确定要删除选中的 $count 个节点吗？删除后无法恢复。")
+                    if (selectedUsages.isNotEmpty()) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = "⚠️ 提示：选中的节点中包含正在配置中使用的节点，涉及规则：",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                                selectedUsages.forEach { usage ->
+                                    Text(
+                                        text = "• $usage",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "删除后，上述规则出站将自动重置为「直连 (direct)」。",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                    }
+                }
+            },
             confirmButton = {
                 Button(
                     onClick = {
@@ -634,6 +763,19 @@ fun NodesScreen(
             dismissButton = {
                 TextButton(onClick = { showDeleteSelectedConfirm = false }) {
                     Text("取消")
+                }
+            }
+        )
+    }
+
+    if (showAddNodeDialog) {
+        AddVlessNodeDialog(
+            onDismiss = { showAddNodeDialog = false },
+            onSave = { config ->
+                viewModel.addManualNode(config) { success, _ ->
+                    if (success) {
+                        showAddNodeDialog = false
+                    }
                 }
             }
         )
@@ -850,4 +992,332 @@ fun LatencyBadge(
             )
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AddVlessNodeDialog(
+    onDismiss: () -> Unit,
+    onSave: (ManualVlessConfig) -> Unit
+) {
+    var tag by remember { mutableStateOf("") }
+    var server by remember { mutableStateOf("") }
+    var serverPort by remember { mutableStateOf("443") }
+    var uuid by remember { mutableStateOf("") }
+    var flow by remember { mutableStateOf("xtls-rprx-vision") }
+    var tlsEnabled by remember { mutableStateOf(true) }
+    var serverName by remember { mutableStateOf("") }
+    var utlsEnabled by remember { mutableStateOf(true) }
+    var utlsFingerprint by remember { mutableStateOf("chrome") }
+    var realityEnabled by remember { mutableStateOf(true) }
+    var realityPublicKey by remember { mutableStateOf("") }
+    var realityShortId by remember { mutableStateOf("") }
+
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var pasteSuccessHint by remember { mutableStateOf<String?>(null) }
+
+    val context = LocalContext.current
+
+    // 从剪贴板一键快速提取与填入参数 (支持 sing-box JSON 与 vless:// 链接)
+    fun parseFromClipboard() {
+        try {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clipText = clipboard.primaryClip?.getItemAt(0)?.text?.toString()?.trim()
+            if (clipText.isNullOrEmpty()) {
+                errorMessage = "剪贴板为空"
+                return
+            }
+
+            if (clipText.startsWith("{") || clipText.contains("\"type\"")) {
+                val json = JsonParser.parseString(clipText).asJsonObject
+                json.get("tag")?.asString?.let { tag = it }
+                json.get("server")?.asString?.let { server = it }
+                json.get("server_port")?.asInt?.let { serverPort = it.toString() }
+                json.get("uuid")?.asString?.let { uuid = it }
+                flow = json.get("flow")?.asString ?: ""
+
+                val tlsObj = json.getAsJsonObject("tls")
+                if (tlsObj != null) {
+                    tlsEnabled = tlsObj.get("enabled")?.asBoolean ?: true
+                    serverName = tlsObj.get("server_name")?.asString ?: ""
+
+                    val utlsObj = tlsObj.getAsJsonObject("utls")
+                    if (utlsObj != null) {
+                        utlsEnabled = utlsObj.get("enabled")?.asBoolean ?: true
+                        utlsFingerprint = utlsObj.get("fingerprint")?.asString ?: "chrome"
+                    } else {
+                        utlsEnabled = false
+                    }
+
+                    val realityObj = tlsObj.getAsJsonObject("reality")
+                    if (realityObj != null) {
+                        realityEnabled = realityObj.get("enabled")?.asBoolean ?: true
+                        realityPublicKey = realityObj.get("public_key")?.asString ?: ""
+                        realityShortId = realityObj.get("short_id")?.asString ?: ""
+                    } else {
+                        realityEnabled = false
+                    }
+                } else {
+                    tlsEnabled = false
+                    realityEnabled = false
+                    utlsEnabled = false
+                }
+                errorMessage = null
+                pasteSuccessHint = "已从剪贴板 JSON 快速填入参数！"
+            } else if (clipText.startsWith("vless://", ignoreCase = true)) {
+                val parsed = io.github.geekdex.subout.domain.parser.ProxyParser.parseGenericUri(clipText)
+                if (parsed != null) {
+                    uuid = parsed.userInfo ?: ""
+                    server = parsed.host
+                    serverPort = (parsed.port ?: 443).toString()
+                    tag = parsed.fragment ?: "${parsed.host}:${serverPort}"
+                    flow = parsed.queryParams["flow"] ?: ""
+                    val sec = parsed.queryParams["security"] ?: ""
+                    tlsEnabled = sec.isNotEmpty() && sec != "none"
+                    serverName = parsed.queryParams["sni"] ?: parsed.queryParams["server_name"] ?: ""
+                    realityPublicKey = parsed.queryParams["pbk"] ?: parsed.queryParams["public_key"] ?: ""
+                    realityShortId = parsed.queryParams["sid"] ?: parsed.queryParams["short_id"] ?: ""
+                    realityEnabled = realityPublicKey.isNotEmpty()
+                    utlsFingerprint = parsed.queryParams["fp"] ?: "chrome"
+                    utlsEnabled = utlsFingerprint.isNotEmpty()
+                    errorMessage = null
+                    pasteSuccessHint = "已从剪贴板 VLESS 链接快速填入参数！"
+                } else {
+                    errorMessage = "未能识别剪贴板中的 VLESS 链接"
+                }
+            } else {
+                errorMessage = "剪贴板内容不是有效的 sing-box JSON 或 vless:// 链接"
+            }
+        } catch (e: Exception) {
+            errorMessage = "解析剪贴板出错: ${e.message}"
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("手动添加 VLESS 节点", fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // 剪贴板快速填入按钮
+                OutlinedButton(
+                    onClick = { parseFromClipboard() },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("从剪贴板快速填入 (JSON / 链接)")
+                }
+
+                pasteSuccessHint?.let { hint ->
+                    Text(
+                        text = hint,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF2E7D32)
+                    )
+                }
+
+                errorMessage?.let { err ->
+                    Text(
+                        text = err,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                // 节点名称
+                OutlinedTextField(
+                    value = tag,
+                    onValueChange = { tag = it; errorMessage = null },
+                    label = { Text("节点名称 (Tag) *") },
+                    placeholder = { Text("例如：us_self") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // 服务器地址与端口
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = server,
+                        onValueChange = { server = it; errorMessage = null },
+                        label = { Text("服务器地址 *") },
+                        placeholder = { Text("IP 或域名") },
+                        singleLine = true,
+                        modifier = Modifier.weight(2f)
+                    )
+                    OutlinedTextField(
+                        value = serverPort,
+                        onValueChange = { serverPort = it; errorMessage = null },
+                        label = { Text("端口 *") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                // 用户 UUID
+                OutlinedTextField(
+                    value = uuid,
+                    onValueChange = { uuid = it; errorMessage = null },
+                    label = { Text("用户 ID (UUID) *") },
+                    placeholder = { Text("例如：c04d6b79-0803-4cf1-8d76-3cc759ef79a0") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // 流控
+                OutlinedTextField(
+                    value = flow,
+                    onValueChange = { flow = it },
+                    label = { Text("流控 (Flow)") },
+                    placeholder = { Text("xtls-rprx-vision (留空则无)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                // TLS 基础设置
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("启用 TLS", fontWeight = FontWeight.Medium)
+                    Switch(
+                        checked = tlsEnabled,
+                        onCheckedChange = { tlsEnabled = it }
+                    )
+                }
+
+                if (tlsEnabled) {
+                    OutlinedTextField(
+                        value = serverName,
+                        onValueChange = { serverName = it },
+                        label = { Text("SNI (Server Name)") },
+                        placeholder = { Text("例如：www.bing.com") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    // uTLS 指纹伪装
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("uTLS 指纹伪装", style = MaterialTheme.typography.bodyMedium)
+                        Switch(
+                            checked = utlsEnabled,
+                            onCheckedChange = { utlsEnabled = it }
+                        )
+                    }
+
+                    if (utlsEnabled) {
+                        OutlinedTextField(
+                            value = utlsFingerprint,
+                            onValueChange = { utlsFingerprint = it },
+                            label = { Text("Fingerprint") },
+                            placeholder = { Text("chrome") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    // Reality 协议
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Reality 安全协议", style = MaterialTheme.typography.bodyMedium)
+                        Switch(
+                            checked = realityEnabled,
+                            onCheckedChange = { realityEnabled = it }
+                        )
+                    }
+
+                    if (realityEnabled) {
+                        OutlinedTextField(
+                            value = realityPublicKey,
+                            onValueChange = { realityPublicKey = it; errorMessage = null },
+                            label = { Text("Reality 公钥 (Public Key) *") },
+                            placeholder = { Text("例如：hDeF0usWcAOgKqZiygeQG8yPQGurjEhXXRNewBVkuy8") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        OutlinedTextField(
+                            value = realityShortId,
+                            onValueChange = { realityShortId = it },
+                            label = { Text("Reality 简短 ID (Short ID)") },
+                            placeholder = { Text("例如：b803b45ccaced487") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (tag.trim().isBlank()) {
+                        errorMessage = "节点名称 (Tag) 不能为空"
+                        return@Button
+                    }
+                    if (server.trim().isBlank()) {
+                        errorMessage = "服务器地址不能为空"
+                        return@Button
+                    }
+                    val port = serverPort.trim().toIntOrNull()
+                    if (port == null || port !in 1..65535) {
+                        errorMessage = "请输入有效的端口号 (1-65535)"
+                        return@Button
+                    }
+                    if (uuid.trim().isBlank()) {
+                        errorMessage = "用户 ID (UUID) 不能为空"
+                        return@Button
+                    }
+                    if (tlsEnabled && realityEnabled && realityPublicKey.trim().isBlank()) {
+                        errorMessage = "开启 Reality 时公钥 (Public Key) 不能为空"
+                        return@Button
+                    }
+
+                    val config = ManualVlessConfig(
+                        tag = tag.trim(),
+                        server = server.trim(),
+                        serverPort = port,
+                        uuid = uuid.trim(),
+                        flow = flow.trim(),
+                        tlsEnabled = tlsEnabled,
+                        serverName = serverName.trim(),
+                        utlsEnabled = utlsEnabled,
+                        utlsFingerprint = utlsFingerprint.trim().ifEmpty { "chrome" },
+                        realityEnabled = realityEnabled,
+                        realityPublicKey = realityPublicKey.trim(),
+                        realityShortId = realityShortId.trim()
+                    )
+                    onSave(config)
+                }
+            ) {
+                Text("保存")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
 }

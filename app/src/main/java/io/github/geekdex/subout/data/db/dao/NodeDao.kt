@@ -64,4 +64,13 @@ interface NodeDao {
 
     @Query("UPDATE nodes SET enabled = :enabled WHERE id IN (:ids)")
     suspend fun updateNodesEnabled(ids: List<Long>, enabled: Boolean): Int
+
+    @Query("SELECT * FROM nodes WHERE id IN (:ids)")
+    suspend fun getNodesByIdsSync(ids: List<Long>): List<Node>
+
+    @Query("SELECT * FROM nodes WHERE latency = :timeoutLatency")
+    suspend fun getTimeoutNodesSync(timeoutLatency: Int = Node.LATENCY_TIMEOUT): List<Node>
+
+    @Query("SELECT * FROM nodes WHERE enabled = 0")
+    suspend fun getDisabledNodesSync(): List<Node>
 }
