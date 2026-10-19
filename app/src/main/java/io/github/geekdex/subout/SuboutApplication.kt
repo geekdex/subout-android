@@ -20,6 +20,9 @@ class SuboutApplication : Application() {
     val nodeRepository by lazy {
         NodeRepository(database.nodeDao())
     }
+    val nodeGroupRepository by lazy {
+        io.github.geekdex.subout.data.repository.NodeGroupRepository(database.nodeGroupDao())
+    }
     val configRepository by lazy {
         ConfigRepository(this)
     }
@@ -38,18 +41,24 @@ class SuboutApplication : Application() {
         configServer.contentProvider = {
             val config = configRepository.configState.value
             val enabledNodes = nodeRepository.getEnabledNodes()
-            io.github.geekdex.subout.domain.generator.SimpleConfigGenerator.generatePrettyString(config, enabledNodes)
+            val enabledGroups = nodeGroupRepository.getAllGroupsSync().filter { it.enabled }
+            io.github.geekdex.subout.domain.generator.SimpleConfigGenerator.generatePrettyString(config, enabledNodes, enabledGroups)
         }
 
-        // 全局响应式同步：无论是节点变更（新增、删除、启用禁用、订阅更新替换）还是配置变更（调整下拉、修改应用组），
+        // 全局响应式同步：无论是节点变更（新增、删除、启用禁用、订阅更新替换）、组合变更还是配置变更，
         // 自动后台生成最新 sing-box 配置，并实时更新 ConfigServer 内存缓存及 Download 导出文件。
         appScope.launch {
-            kotlinx.coroutines.flow.combine(configRepository.configState, nodeRepository.nodes) { cfg, nodes ->
-                Pair(cfg, nodes)
-            }.collect { (cfg, nodes) ->
+            kotlinx.coroutines.flow.combine(
+                configRepository.configState,
+                nodeRepository.nodes,
+                nodeGroupRepository.nodeGroups
+            ) { cfg, nodes, groups ->
+                Triple(cfg, nodes, groups)
+            }.collect { (cfg, nodes, groups) ->
                 try {
                     val enabledNodes = nodes.filter { it.enabled }
-                    val jsonStr = io.github.geekdex.subout.domain.generator.SimpleConfigGenerator.generatePrettyString(cfg, enabledNodes)
+                    val enabledGroups = groups.filter { it.enabled }
+                    val jsonStr = io.github.geekdex.subout.domain.generator.SimpleConfigGenerator.generatePrettyString(cfg, enabledNodes, enabledGroups)
                     configServer.updateContent(jsonStr)
                     configExporter.exportToFile(jsonStr)
                 } catch (e: Exception) {

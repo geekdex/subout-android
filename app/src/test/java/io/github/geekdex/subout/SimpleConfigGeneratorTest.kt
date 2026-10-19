@@ -1,8 +1,10 @@
 package io.github.geekdex.subout
 
 import io.github.geekdex.subout.data.db.entities.Node
+import io.github.geekdex.subout.data.db.entities.NodeGroup
 import io.github.geekdex.subout.domain.generator.SimpleConfigGenerator
 import io.github.geekdex.subout.domain.model.AppRulePresets
+import io.github.geekdex.subout.domain.model.PresetTestEndpoints
 import io.github.geekdex.subout.domain.model.CustomDomainGroup
 import io.github.geekdex.subout.domain.model.SimpleConfig
 import io.github.geekdex.subout.domain.model.SimpleDnsConfig
@@ -536,6 +538,94 @@ class SimpleConfigGeneratorTest {
 
         val inboundsEnabled = jsonEnabled.getAsJsonArray("inbounds")
         assertEquals("gvisor", inboundsEnabled[0].asJsonObject.get("stack").asString)
+    }
+
+    @Test
+    fun testNodeGroupsUrltestGenerationAndRouteSelection() {
+        val dummyNodes = listOf(
+            Node(1, 1, "HK-01", "trojan", "hk01.com", 443, "{}", true),
+            Node(2, 1, "HK-02", "trojan", "hk02.com", 443, "{}", true),
+            Node(3, 1, "US-01", "vless", "us01.com", 443, "{}", true)
+        )
+
+        val group1 = NodeGroup(
+            id = "group-1",
+            name = "香港优化组",
+            testUrl = PresetTestEndpoints.GOOGLE_GSTATIC.url,
+            testUrlName = PresetTestEndpoints.GOOGLE_GSTATIC.name,
+            nodeTagsJson = "[\"HK-01\",\"HK-02\"]",
+            enabled = true
+        )
+        val group2 = NodeGroup(
+            id = "group-2",
+            name = "美国备用组",
+            testUrl = PresetTestEndpoints.CLOUDFLARE_TRACE.url,
+            testUrlName = PresetTestEndpoints.CLOUDFLARE_TRACE.name,
+            nodeTagsJson = "[\"US-01\"]",
+            enabled = true
+        )
+
+        val cfg = SimpleConfig(
+            route = SimpleRouteConfig(
+                mode = "smart",
+                default_outbound = "香港优化组",
+                route_ai = true,
+                ai_outbound = "美国备用组",
+                route_google = true,
+                google_outbound = "HK-01"
+            )
+        )
+
+        val json = SimpleConfigGenerator.generate(cfg, dummyNodes, listOf(group1, group2))
+        val outbounds = json.getAsJsonArray("outbounds")
+        val route = json.getAsJsonObject("route")
+        val routeRules = route.getAsJsonArray("rules")
+
+        // 1. Selector "proxy" contains both groups and its default is "香港优化组"
+        val proxySelector = outbounds.firstOrNull { it.asJsonObject.get("tag")?.asString == "proxy" }
+        assertNotNull(proxySelector)
+        assertEquals("香港优化组", proxySelector!!.asJsonObject.get("default")?.asString)
+        val selectorOutbounds = proxySelector.asJsonObject.getAsJsonArray("outbounds").map { it.asString }
+        assertTrue("proxy selector should contain 香港优化组", selectorOutbounds.contains("香港优化组"))
+        assertTrue("proxy selector should contain 美国备用组", selectorOutbounds.contains("美国备用组"))
+        assertTrue("proxy selector should contain single nodes", selectorOutbounds.contains("HK-01"))
+
+        // 2. Custom urltest for 香港优化组 exists with correct preset URL and nodes
+        val hkGroupOutbound = outbounds.firstOrNull { it.asJsonObject.get("tag")?.asString == "香港优化组" }
+        assertNotNull("urltest outbound for 香港优化组 must exist", hkGroupOutbound)
+        val hkObj = hkGroupOutbound!!.asJsonObject
+        assertEquals("urltest", hkObj.get("type").asString)
+        assertEquals(PresetTestEndpoints.GOOGLE_GSTATIC.url, hkObj.get("url").asString)
+        val hkMembers = hkObj.getAsJsonArray("outbounds").map { it.asString }
+        assertEquals(listOf("HK-01", "HK-02"), hkMembers)
+
+        // 3. Custom urltest for 美国备用组 exists with correct preset URL and nodes
+        val usGroupOutbound = outbounds.firstOrNull { it.asJsonObject.get("tag")?.asString == "美国备用组" }
+        assertNotNull("urltest outbound for 美国备用组 must exist", usGroupOutbound)
+        val usObj = usGroupOutbound!!.asJsonObject
+        assertEquals("urltest", usObj.get("type").asString)
+        assertEquals(PresetTestEndpoints.CLOUDFLARE_TRACE.url, usObj.get("url").asString)
+        val usMembers = usObj.getAsJsonArray("outbounds").map { it.asString }
+        assertEquals(listOf("US-01"), usMembers)
+
+        // 4. AI route routes directly to node group "美国备用组"
+        val aiRule = routeRules.firstOrNull {
+            val pkgs = it.asJsonObject.getAsJsonArray("package_name")
+            pkgs != null && pkgs.any { p -> p.asString == "com.openai.chatgpt" }
+        }
+        assertNotNull("AI package rule must exist", aiRule)
+        assertEquals("美国备用组", aiRule!!.asJsonObject.get("outbound").asString)
+
+        // 5. Google route routes directly to single node "HK-01"
+        val googleRule = routeRules.firstOrNull {
+            val pkgs = it.asJsonObject.getAsJsonArray("package_name")
+            pkgs != null && pkgs.any { p -> p.asString == "com.android.vending" }
+        }
+        assertNotNull("Google package rule must exist", googleRule)
+        assertEquals("HK-01", googleRule!!.asJsonObject.get("outbound").asString)
+
+        // 6. Final outbound is default outbound "香港优化组"
+        assertEquals("香港优化组", route.get("final").asString)
     }
 
     @Test

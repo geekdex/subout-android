@@ -41,6 +41,7 @@ data class ExportUiState(
 class ExportViewModel(
     private val configRepository: ConfigRepository,
     private val nodeRepository: NodeRepository,
+    private val nodeGroupRepository: io.github.geekdex.subout.data.repository.NodeGroupRepository,
     private val configExporter: ConfigExporter,
     private val configServer: ConfigServer
 ) : ViewModel() {
@@ -55,15 +56,17 @@ class ExportViewModel(
     val uiState: StateFlow<ExportUiState> = _uiState.asStateFlow()
 
     init {
-        // 自动响应配置或节点变更，实时更新预览与本地 HTTP 服务内容
+        // 自动响应配置或节点、组合变更，实时更新预览与本地 HTTP 服务内容
         viewModelScope.launch {
             combine(
                 configRepository.configState,
-                nodeRepository.nodes
-            ) { config, nodes ->
+                nodeRepository.nodes,
+                nodeGroupRepository.nodeGroups
+            ) { config, nodes, groups ->
                 val enabledNodes = nodes.filter { it.enabled }
+                val enabledGroups = groups.filter { it.enabled }
                 withContext(Dispatchers.Default) {
-                    SimpleConfigGenerator.generatePrettyString(config, enabledNodes)
+                    SimpleConfigGenerator.generatePrettyString(config, enabledNodes, enabledGroups)
                 }
             }.collect { jsonStr ->
                 _uiState.value = _uiState.value.copy(
@@ -103,8 +106,9 @@ class ExportViewModel(
             try {
                 val config = configRepository.configState.value
                 val enabledNodes = nodeRepository.getEnabledNodes()
+                val enabledGroups = nodeGroupRepository.getAllGroupsSync().filter { it.enabled }
                 val jsonStr = withContext(Dispatchers.Default) {
-                    SimpleConfigGenerator.generatePrettyString(config, enabledNodes)
+                    SimpleConfigGenerator.generatePrettyString(config, enabledNodes, enabledGroups)
                 }
                 _uiState.value = _uiState.value.copy(
                     configJson = jsonStr,
@@ -193,6 +197,7 @@ class ExportViewModel(
                 return ExportViewModel(
                     app.configRepository,
                     app.nodeRepository,
+                    app.nodeGroupRepository,
                     app.configExporter,
                     app.configServer
                 ) as T

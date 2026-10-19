@@ -10,16 +10,15 @@ import androidx.lifecycle.viewModelScope
 import io.github.geekdex.subout.SuboutApplication
 import io.github.geekdex.subout.data.repository.ConfigRepository
 import io.github.geekdex.subout.data.repository.NodeRepository
-import io.github.geekdex.subout.domain.generator.SimpleConfigGenerator
+import io.github.geekdex.subout.data.db.entities.Node
+import io.github.geekdex.subout.data.db.entities.NodeGroup
+import io.github.geekdex.subout.data.repository.NodeGroupRepository
 import io.github.geekdex.subout.domain.model.AppRulePresets
 import io.github.geekdex.subout.domain.model.CustomAppGroup
 import io.github.geekdex.subout.domain.model.CustomDomainGroup
 import io.github.geekdex.subout.domain.model.DomainUtils
 import io.github.geekdex.subout.domain.model.InstalledAppInfo
 import io.github.geekdex.subout.domain.model.SimpleConfig
-import io.github.geekdex.subout.domain.model.SimpleDnsConfig
-import io.github.geekdex.subout.domain.model.SimpleInboundConfig
-import io.github.geekdex.subout.domain.model.SimpleLogConfig
 import io.github.geekdex.subout.domain.model.SimpleRouteConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,6 +32,8 @@ import kotlinx.coroutines.withContext
 data class SimpleConfigUiState(
     val config: SimpleConfig = SimpleConfig(),
     val availableOutbounds: List<String> = listOf("AUTO-Test", "proxy", "direct", "block"),
+    val nodeGroups: List<NodeGroup> = emptyList(),
+    val nodes: List<Node> = emptyList(),
     val installedApps: List<InstalledAppInfo> = emptyList(),
     val isLoadingApps: Boolean = false,
     val message: String? = null
@@ -46,6 +47,7 @@ data class DomainBatchAddResult(
 class SimpleConfigViewModel(
     private val configRepository: ConfigRepository,
     private val nodeRepository: NodeRepository,
+    private val nodeGroupRepository: NodeGroupRepository,
     private val context: Context? = null
 ) : ViewModel() {
 
@@ -61,16 +63,36 @@ class SimpleConfigViewModel(
     val uiState: StateFlow<SimpleConfigUiState> = combine(
         _currentConfig,
         nodeRepository.nodes,
+        nodeGroupRepository.nodeGroups,
         _installedApps,
         _isLoadingApps,
         _message
-    ) { cfg, nodes, apps, loadingApps, msg ->
+    ) { args ->
+        @Suppress("UNCHECKED_CAST")
+        val cfg = args[0] as SimpleConfig
+        @Suppress("UNCHECKED_CAST")
+        val nodes = args[1] as List<Node>
+        @Suppress("UNCHECKED_CAST")
+        val groups = args[2] as List<NodeGroup>
+        @Suppress("UNCHECKED_CAST")
+        val apps = args[3] as List<InstalledAppInfo>
+        @Suppress("UNCHECKED_CAST")
+        val loadingApps = args[4] as Boolean
+        @Suppress("UNCHECKED_CAST")
+        val msg = args[5] as String?
+        
         val outbounds = mutableListOf("AUTO-Test", "proxy", "direct", "block")
-        val enabledNodeTags = nodes.filter { it.enabled }.map { it.tag }
+        val enabledGroups = groups.filter { it.enabled }
+        val enabledGroupTags = enabledGroups.map { it.name }
+        outbounds.addAll(enabledGroupTags)
+        val enabledNodes = nodes.filter { it.enabled }
+        val enabledNodeTags = enabledNodes.map { it.tag }
         outbounds.addAll(enabledNodeTags)
         SimpleConfigUiState(
             config = cfg,
             availableOutbounds = outbounds,
+            nodeGroups = enabledGroups,
+            nodes = enabledNodes,
             installedApps = apps,
             isLoadingApps = loadingApps,
             message = msg
@@ -146,10 +168,6 @@ class SimpleConfigViewModel(
         }
     }
 
-    /**
-     * 计算所有已被占用的应用包名映射 (包名 -> 占用来源名称)
-     * 用于保证一个应用只能属于一个分组/预设，避免冗余和规则冲突
-     */
     /**
      * 计算所有已被占用的应用包名映射 (包名 -> 占用来源名称)
      * 用于保证一个应用只能属于一个分组/预设，避免冗余和规则冲突
@@ -610,7 +628,7 @@ class SimpleConfigViewModel(
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 val app = SuboutApplication.instance
-                return SimpleConfigViewModel(app.configRepository, app.nodeRepository, app.applicationContext) as T
+                return SimpleConfigViewModel(app.configRepository, app.nodeRepository, app.nodeGroupRepository, app.applicationContext) as T
             }
         }
     }
