@@ -826,111 +826,65 @@ fun NodesTabContent(
     viewModel: NodesViewModel,
     onInspectNode: (Node) -> Unit
 ) {
+    val sortLabel = when (uiState.sortOption) {
+        NodeSortOption.DEFAULT -> "排序: 默认"
+        NodeSortOption.LATENCY -> "排序: 延迟优先"
+        NodeSortOption.NAME -> "排序: 名称"
+        NodeSortOption.PROTOCOL -> "排序: 协议"
+    }
+    
+    var isFilterExpanded by remember { mutableStateOf(false) }
+    
     Column(modifier = Modifier.fillMaxSize()) {
-        // Search Input
-        OutlinedTextField(
-            value = uiState.searchQuery,
-            onValueChange = { viewModel.setSearchQuery(it) },
-            placeholder = { Text("搜索节点名称或地址...") },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-            trailingIcon = {
-                if (uiState.searchQuery.isNotEmpty()) {
-                    IconButton(onClick = { viewModel.setSearchQuery("") }) {
-                        Icon(Icons.Default.Clear, contentDescription = "清除搜索")
-                    }
-                }
-            },
-            singleLine = true,
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp)
+        // New Collapsible Filter Bar
+        SearchFilterBar(
+            searchQuery = uiState.searchQuery,
+            onSearchQueryChange = { viewModel.setSearchQuery(it) },
+            selectedProtocol = uiState.selectedProtocol,
+            onProtocolChange = { viewModel.setSelectedProtocol(it) },
+            isExpanded = isFilterExpanded,
+            onExpandedChange = { isFilterExpanded = it },
+            sortLabel = sortLabel,
+            onSortClick = { onShowSortMenuChange(true) },
+            onClearLatencies = { viewModel.clearLatencies() }
         )
-
-        // Protocol Filter Chips
-        val protocols = listOf("ALL", "vmess", "vless", "shadowsocks", "trojan", "hysteria", "hysteria2", "socks", "http")
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            protocols.forEach { proto ->
-                val label = if (proto == "ALL") "全部协议" else proto.uppercase()
-                FilterChip(
-                    selected = uiState.selectedProtocol.equals(proto, ignoreCase = true),
-                    onClick = { viewModel.setSelectedProtocol(proto) },
-                    label = { Text(label, style = MaterialTheme.typography.labelMedium) }
-                )
+        
+        // Sort Menu
+        Box {
+            if (showSortMenu) {
+                // Hidden anchor for dropdown
             }
-        }
-
-        // Action Toolbar (Sort & Batch switches)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Box {
-                AssistChip(
-                    onClick = { onShowSortMenuChange(true) },
-                    label = {
-                        val sortLabel = when (uiState.sortOption) {
-                            NodeSortOption.DEFAULT -> "默认排序"
-                            NodeSortOption.LATENCY -> "延迟优先"
-                            NodeSortOption.NAME -> "名称排序"
-                            NodeSortOption.PROTOCOL -> "协议排序"
-                        }
-                        Text("排序: $sortLabel")
+            DropdownMenu(
+                expanded = showSortMenu,
+                onDismissRequest = { onShowSortMenuChange(false) }
+            ) {
+                DropdownMenuItem(
+                    text = { Text("默认排序") },
+                    onClick = {
+                        viewModel.setSortOption(NodeSortOption.DEFAULT)
+                        onShowSortMenuChange(false)
                     }
                 )
-                DropdownMenu(
-                    expanded = showSortMenu,
-                    onDismissRequest = { onShowSortMenuChange(false) }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("默认排序") },
-                        onClick = {
-                            viewModel.setSortOption(NodeSortOption.DEFAULT)
-                            onShowSortMenuChange(false)
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("按延迟优先") },
-                        onClick = {
-                            viewModel.setSortOption(NodeSortOption.LATENCY)
-                            onShowSortMenuChange(false)
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("按节点名称") },
-                        onClick = {
-                            viewModel.setSortOption(NodeSortOption.NAME)
-                            onShowSortMenuChange(false)
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("按协议类型") },
-                        onClick = {
-                            viewModel.setSortOption(NodeSortOption.PROTOCOL)
-                            onShowSortMenuChange(false)
-                        }
-                    )
-                }
-            }
-
-            TextButton(
-                onClick = { viewModel.clearLatencies() },
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-            ) {
-                Text(
-                    "清空测速",
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 1,
-                    softWrap = false
+                DropdownMenuItem(
+                    text = { Text("按延迟优先") },
+                    onClick = {
+                        viewModel.setSortOption(NodeSortOption.LATENCY)
+                        onShowSortMenuChange(false)
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("按节点名称") },
+                    onClick = {
+                        viewModel.setSortOption(NodeSortOption.NAME)
+                        onShowSortMenuChange(false)
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("按协议类型") },
+                    onClick = {
+                        viewModel.setSortOption(NodeSortOption.PROTOCOL)
+                        onShowSortMenuChange(false)
+                    }
                 )
             }
         }

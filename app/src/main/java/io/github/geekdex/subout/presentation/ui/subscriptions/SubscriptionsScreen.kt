@@ -85,15 +85,18 @@ fun SubscriptionsScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text("订阅管理", fontWeight = FontWeight.Bold)
-                },
-                actions = {
-                    IconButton(onClick = { showAddDialog = true }) {
-                        Icon(Icons.Default.Add, contentDescription = "添加订阅")
+                    Column {
+                        Text("订阅管理", fontWeight = FontWeight.Bold)
+                        Text(
+                            "共 ${uiState.subscriptions.size} 个订阅",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface
                 )
             )
         },

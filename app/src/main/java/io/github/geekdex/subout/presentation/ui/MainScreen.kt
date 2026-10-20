@@ -9,9 +9,11 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -68,67 +70,75 @@ fun MainScreen() {
         }
     }
 
-    Scaffold(
+    Surface(
         modifier = Modifier.fillMaxSize(),
-        contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
-        bottomBar = {
-            NavigationBar {
-                items.forEach { screen ->
-                    NavigationBarItem(
-                        icon = { Icon(screen.icon, contentDescription = screen.title) },
-                        label = { Text(screen.title) },
-                        selected = currentRoute == screen.route,
-                        onClick = { navigateToTab(screen.route) }
-                    )
+        color = MaterialTheme.colorScheme.background
+    ) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
+            bottomBar = {
+                NavigationBar(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                ) {
+                    items.forEach { screen ->
+                        NavigationBarItem(
+                            icon = { Icon(screen.icon, contentDescription = screen.title) },
+                            label = { Text(screen.title) },
+                            selected = currentRoute == screen.route,
+                            onClick = { navigateToTab(screen.route) }
+                        )
+                    }
                 }
             }
-        }
-    ) { innerPadding ->
-        NavHost(
-            navController = navController,
-            startDestination = Screen.Dashboard.route,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(bottom = innerPadding.calculateBottomPadding())
-        ) {
-            composable(Screen.Dashboard.route) {
-                val dashboardViewModel: DashboardViewModel = viewModel(factory = DashboardViewModel.Factory())
-                DashboardScreen(
-                    viewModel = dashboardViewModel,
-                    onNavigateToSubscriptions = { navigateToTab(Screen.Subscriptions.route) },
-                    onNavigateToNodes = { navigateToTab(Screen.Nodes.route) },
-                    onNavigateToConfig = { navigateToTab(Screen.Config.route) },
-                    onNavigateToExport = { navigateToTab(Screen.Export.route) }
-                )
-            }
+        ) { innerPadding ->
+            NavHost(
+                navController = navController,
+                startDestination = Screen.Dashboard.route,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = innerPadding.calculateBottomPadding())
+            ) {
+                composable(Screen.Dashboard.route) {
+                    val dashboardViewModel: DashboardViewModel = viewModel(factory = DashboardViewModel.Factory())
+                    DashboardScreen(
+                        viewModel = dashboardViewModel,
+                        onNavigateToSubscriptions = { navigateToTab(Screen.Subscriptions.route) },
+                        onNavigateToNodes = { navigateToTab(Screen.Nodes.route) },
+                        onNavigateToConfig = { navigateToTab(Screen.Config.route) },
+                        onNavigateToExport = { navigateToTab(Screen.Export.route) }
+                    )
+                }
 
-            composable(Screen.Subscriptions.route) {
-                val subscriptionsViewModel: SubscriptionsViewModel = viewModel(factory = SubscriptionsViewModel.Factory())
-                SubscriptionsScreen(
-                    viewModel = subscriptionsViewModel
-                )
-            }
+                composable(Screen.Subscriptions.route) {
+                    val subscriptionsViewModel: SubscriptionsViewModel = viewModel(factory = SubscriptionsViewModel.Factory())
+                    SubscriptionsScreen(
+                        viewModel = subscriptionsViewModel
+                    )
+                }
 
-            composable(Screen.Nodes.route) {
-                val nodesViewModel: NodesViewModel = viewModel(factory = NodesViewModel.Factory())
-                NodesScreen(
-                    viewModel = nodesViewModel
-                )
-            }
+                composable(Screen.Nodes.route) {
+                    val nodesViewModel: NodesViewModel = viewModel(factory = NodesViewModel.Factory())
+                    NodesScreen(
+                        viewModel = nodesViewModel
+                    )
+                }
 
-            composable(Screen.Config.route) {
-                val configViewModel: SimpleConfigViewModel = viewModel(factory = SimpleConfigViewModel.Factory())
-                SimpleConfigScreen(
-                    viewModel = configViewModel,
-                    onNavigateToExport = { navigateToTab(Screen.Export.route) }
-                )
-            }
+                composable(Screen.Config.route) {
+                    val configViewModel: SimpleConfigViewModel = viewModel(factory = SimpleConfigViewModel.Factory())
+                    SimpleConfigScreen(
+                        viewModel = configViewModel,
+                        onNavigateToExport = { navigateToTab(Screen.Export.route) }
+                    )
+                }
 
-            composable(Screen.Export.route) {
-                val exportViewModel: ExportViewModel = viewModel(factory = ExportViewModel.Factory())
-                ExportScreen(
-                    viewModel = exportViewModel
-                )
+                composable(Screen.Export.route) {
+                    val exportViewModel: ExportViewModel = viewModel(factory = ExportViewModel.Factory())
+                    ExportScreen(
+                        viewModel = exportViewModel
+                    )
+                }
             }
         }
     }
