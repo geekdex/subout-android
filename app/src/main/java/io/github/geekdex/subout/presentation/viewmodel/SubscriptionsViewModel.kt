@@ -78,13 +78,11 @@ class SubscriptionsViewModel(
     fun deleteSubscription(id: Long) {
         viewModelScope.launch {
             try {
-                val nodesToDelete = subscriptionRepository.getNodesBySubscriptionId(id)
-                val tags = nodesToDelete.map { it.tag }.toSet()
-                val resetList = configRepository.resetOutboundIfUsed(tags)
-                nodeGroupRepository.removeNodesFromAllManualGroups(tags)
                 subscriptionRepository.deleteSubscription(id)
-                if (resetList.isNotEmpty()) {
-                    _message.value = "已删除订阅，涉及的规则【${resetList.joinToString("、")}】已重置为直连 (direct)"
+                // 订阅删除后，全面同步清理静态组、刷新动态组、校验并重置配置引用
+                val syncResult = dataSyncService.syncSubscriptionsCompleted()
+                if (syncResult.configResetList.isNotEmpty()) {
+                    _message.value = "已删除订阅，涉及的规则【${syncResult.configResetList.joinToString("、")}】已重置为直连 (direct)"
                 } else {
                     _message.value = "已删除订阅及相关节点"
                 }

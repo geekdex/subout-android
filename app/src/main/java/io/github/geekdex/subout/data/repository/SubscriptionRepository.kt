@@ -83,4 +83,8 @@ class SubscriptionRepository(
         }
         results
     }
+
+    suspend fun getAllSync(): List<Subscription> = withContext(Dispatchers.IO) {
+        subscriptionDao.getAllSync()
+    }
 }

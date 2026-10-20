@@ -9,8 +9,24 @@ package io.github.geekdex.subout.domain.model
  * 节点组类型（用于 UI 显示和用户操作）
  */
 enum class NodeGroupTypeUI {
-    MANUAL,      // 手动选择组
-    DYNAMIC      // 动态匹配组
+    MANUAL,      // 手动选择组（静态节点组）
+    DYNAMIC;     // 动态匹配组（动态筛选组）
+
+    /**
+     * 获取中文显示名称
+     */
+    fun getDisplayName(): String = when (this) {
+        MANUAL -> "静态组合"
+        DYNAMIC -> "动态筛选组合"
+    }
+
+    /**
+     * 获取类型说明
+     */
+    fun getDescription(): String = when (this) {
+        MANUAL -> "手动勾选固定节点，订阅更新时若节点失效会被移除"
+        DYNAMIC -> "按订阅与关键词自动筛选，订阅更新时自动同步匹配节点"
+    }
 }
 
 /**

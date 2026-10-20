@@ -74,8 +74,10 @@ class NodeGroupRepository(
             if (group.groupType == NodeGroupType.DYNAMIC) {
                 val rule = group.dynamicRule ?: continue
                 val matchedTags = calculateDynamicGroupNodes(rule, allNodes)
-                val updatedGroup = group.copyWithNodeTags(matchedTags)
-                nodeGroupDao.update(updatedGroup)
+                if (matchedTags != group.nodeTags) {
+                    val updatedGroup = group.copyWithNodeTags(matchedTags)
+                    nodeGroupDao.update(updatedGroup)
+                }
             }
         }
     }
@@ -83,20 +85,12 @@ class NodeGroupRepository(
     /**
      * 根据动态规则计算匹配的节点 tag 列表
      */
-    private suspend fun calculateDynamicGroupNodes(
+    suspend fun calculateDynamicGroupNodes(
         rule: DynamicMatchRule,
         allNodes: List<Node>
     ): List<String> = withContext(Dispatchers.IO) {
         val filtered = allNodes.filter { node ->
-            // 1. 检查订阅过滤
-            if (rule.subscriptionIds.isNotEmpty()) {
-                if (node.subscriptionId == null || node.subscriptionId !in rule.subscriptionIds) {
-                    return@filter false
-                }
-            }
-
-            // 2. 检查关键词匹配
-            rule.matches(node.tag)
+            rule.matches(node.tag, node.subscriptionId)
         }
         filtered.map { it.tag }
     }
@@ -104,10 +98,17 @@ class NodeGroupRepository(
     /**
      * 创建一个手动选择组
      */
-    suspend fun createManualGroup(name: String, nodeTags: List<String> = emptyList()): NodeGroup {
+    suspend fun createManualGroup(
+        name: String,
+        nodeTags: List<String> = emptyList(),
+        testUrl: String = "https://www.gstatic.com/generate_204",
+        testUrlName: String = "Google Gstatic"
+    ): NodeGroup {
         val group = NodeGroup(
             name = name,
             type = NodeGroupType.MANUAL.name,
+            testUrl = testUrl,
+            testUrlName = testUrlName,
             nodeTagsJson = com.google.gson.Gson().toJson(nodeTags)
         )
         insertGroup(group)
@@ -121,25 +122,56 @@ class NodeGroupRepository(
         name: String,
         subscriptionIds: List<Long> = emptyList(),
         includeKeywords: List<String> = emptyList(),
-        excludeKeywords: List<String> = emptyList()
+        excludeKeywords: List<String> = emptyList(),
+        testUrl: String = "https://www.gstatic.com/generate_204",
+        testUrlName: String = "Google Gstatic"
     ): NodeGroup {
         val rule = DynamicMatchRule(
             subscriptionIds = subscriptionIds,
             includeKeywords = includeKeywords.filter { it.isNotBlank() },
             excludeKeywords = excludeKeywords.filter { it.isNotBlank() }
         )
+        val allNodes = nodeDao.getAllSync()
+        val matchedTags = calculateDynamicGroupNodes(rule, allNodes)
         val group = NodeGroup(
             name = name,
             type = NodeGroupType.DYNAMIC.name,
+            testUrl = testUrl,
+            testUrlName = testUrlName,
             dynamicRuleJson = DynamicMatchRule.toJson(rule)
-        )
+        ).copyWithNodeTags(matchedTags)
         insertGroup(group)
-        // 立即计算初始匹配节点
+        return group
+    }
+
+    /**
+     * 完整更新动态匹配组合（包含名称、测速目标与匹配规则）
+     */
+    suspend fun updateDynamicGroup(
+        groupId: String,
+        name: String,
+        testUrl: String,
+        testUrlName: String,
+        subscriptionIds: List<Long>,
+        includeKeywords: List<String>,
+        excludeKeywords: List<String>
+    ): NodeGroup? = withContext(Dispatchers.IO) {
+        val group = nodeGroupDao.getById(groupId) ?: return@withContext null
+        val rule = DynamicMatchRule(
+            subscriptionIds = subscriptionIds,
+            includeKeywords = includeKeywords.filter { it.isNotBlank() },
+            excludeKeywords = excludeKeywords.filter { it.isNotBlank() }
+        )
         val allNodes = nodeDao.getAllSync()
         val matchedTags = calculateDynamicGroupNodes(rule, allNodes)
-        val updatedGroup = group.copyWithNodeTags(matchedTags)
-        updateGroup(updatedGroup)
-        return updatedGroup
+        val updatedGroup = group.copy(
+            name = name,
+            testUrl = testUrl.ifBlank { "https://www.gstatic.com/generate_204" },
+            testUrlName = testUrlName.ifBlank { "Google Gstatic" },
+            dynamicRuleJson = DynamicMatchRule.toJson(rule)
+        ).copyWithNodeTags(matchedTags)
+        nodeGroupDao.update(updatedGroup)
+        updatedGroup
     }
 
     /**

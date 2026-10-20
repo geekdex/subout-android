@@ -62,7 +62,7 @@ fun OutboundSelectorDropdown(
             else -> {
                 val group = nodeGroups.find { it.name == selectedOutbound }
                 if (group != null) {
-                    "组合: ${group.name} (${group.nodeTags.size} 节点)"
+                    "${group.groupType.getDisplayName()}: ${group.name} (${group.nodeTags.size} 节点)"
                 } else {
                     val node = nodes.find { it.tag == selectedOutbound }
                     if (node != null) {
@@ -261,9 +261,9 @@ fun OutboundSelectorDropdown(
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    text = "${group.nodeTags.size} 个节点 · 测速: ${group.testUrlName.ifBlank { "Google 204" }}",
+                                    text = "${group.groupType.getDisplayName()} · ${group.nodeTags.size} 个节点 · 测速: ${group.testUrlName.ifBlank { "Google 204" }}",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.outline,
+                                    color = if (group.nodeTags.isEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )

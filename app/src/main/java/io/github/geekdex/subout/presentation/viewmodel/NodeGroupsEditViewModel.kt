@@ -34,6 +34,13 @@ class NodeGroupsEditViewModel(
     val detailState: StateFlow<NodeGroupDetailUiState> = _detailState.asStateFlow()
 
     /**
+     * 获取所有订阅列表（用于动态分组的订阅过滤）
+     */
+    fun getAvailableSubscriptions(): List<Pair<Long, String>> {
+        return _detailState.value.availableSubscriptions
+    }
+
+    /**
      * 加载节点组详情以供编辑
      */
     fun loadGroupForEdit(groupId: String) {
@@ -44,6 +51,9 @@ class NodeGroupsEditViewModel(
 
                 val availableNodes = nodeRepository.getAllNodesSync()
                     .map { it.id to it.tag }
+
+                val availableSubscriptions = subscriptionRepository.getAllSync()
+                    .map { it.id to it.name }
 
                 val formData = when (group.groupType) {
                     NodeGroupType.MANUAL -> NodeGroupFormData(
@@ -80,7 +90,11 @@ class NodeGroupsEditViewModel(
                     groupId = group.id,
                     formData = formData,
                     availableNodes = availableNodes,
-                    selectedNodeTags = group.nodeTags
+                    availableSubscriptions = availableSubscriptions,
+                    selectedNodeTags = group.nodeTags,
+                    selectedSubscriptionIds = formData.dynamicRule.subscriptionIds,
+                    includeKeywordsInput = DynamicMatchRuleUI.keywordsToString(formData.dynamicRule.includeKeywords),
+                    excludeKeywordsInput = DynamicMatchRuleUI.keywordsToString(formData.dynamicRule.excludeKeywords)
                 )
             } catch (e: Exception) {
                 _detailState.value = _detailState.value.copy(
@@ -100,11 +114,18 @@ class NodeGroupsEditViewModel(
             val availableNodes = nodeRepository.getAllNodesSync()
                 .map { it.id to it.tag }
 
+            val availableSubscriptions = subscriptionRepository.getAllSync()
+                .map { it.id to it.name }
+
             _detailState.value = NodeGroupDetailUiState(
                 formData = NodeGroupFormData(
                     type = type
                 ),
-                availableNodes = availableNodes
+                availableNodes = availableNodes,
+                availableSubscriptions = availableSubscriptions,
+                selectedSubscriptionIds = emptyList(),
+                includeKeywordsInput = "",
+                excludeKeywordsInput = ""
             )
         }
     }
@@ -175,26 +196,54 @@ class NodeGroupsEditViewModel(
      * 更新包含关键词（从文本输入）
      */
     fun updateIncludeKeywords(input: String) {
+        val keywords = DynamicMatchRuleUI.parseKeywords(input)
         updateFormData { form ->
             form.copy(
                 dynamicRule = form.dynamicRule.copy(
-                    includeKeywords = DynamicMatchRuleUI.parseKeywords(input)
+                    includeKeywords = keywords
                 )
             )
         }
+        _detailState.value = _detailState.value.copy(includeKeywordsInput = input)
+        refreshDynamicPreview()
     }
 
     /**
      * 更新排除关键词（从文本输入）
      */
     fun updateExcludeKeywords(input: String) {
+        val keywords = DynamicMatchRuleUI.parseKeywords(input)
         updateFormData { form ->
             form.copy(
                 dynamicRule = form.dynamicRule.copy(
-                    excludeKeywords = DynamicMatchRuleUI.parseKeywords(input)
+                    excludeKeywords = keywords
                 )
             )
         }
+        _detailState.value = _detailState.value.copy(excludeKeywordsInput = input)
+        refreshDynamicPreview()
+    }
+
+    /**
+     * 切换订阅选中状态
+     */
+    fun toggleSubscriptionSelection(subscriptionId: Long) {
+        val currentIds = _detailState.value.selectedSubscriptionIds.toMutableList()
+        if (currentIds.contains(subscriptionId)) {
+            currentIds.remove(subscriptionId)
+        } else {
+            currentIds.add(subscriptionId)
+        }
+        _detailState.value = _detailState.value.copy(selectedSubscriptionIds = currentIds)
+        
+        updateFormData { form ->
+            form.copy(
+                dynamicRule = form.dynamicRule.copy(
+                    subscriptionIds = currentIds
+                )
+            )
+        }
+        refreshDynamicPreview()
     }
 
     /**
@@ -250,7 +299,9 @@ class NodeGroupsEditViewModel(
                             name = form.name,
                             subscriptionIds = form.dynamicRule.subscriptionIds,
                             includeKeywords = form.dynamicRule.includeKeywords,
-                            excludeKeywords = form.dynamicRule.excludeKeywords
+                            excludeKeywords = form.dynamicRule.excludeKeywords,
+                            testUrl = form.testUrl,
+                            testUrlName = form.testUrlName
                         )
                         _detailState.value = _detailState.value.copy(
                             message = "已创建动态分组: ${form.name}"
@@ -274,28 +325,23 @@ class NodeGroupsEditViewModel(
                             )
                             nodeGroupRepository.updateGroup(updated)
                             _detailState.value = _detailState.value.copy(
-                                message = "已更新手动分组: ${form.name}"
+                                message = "已更新静态分组: ${form.name}"
                             )
                         }
                     }
 
                     !form.isNew && form.isDynamicType -> {
                         // 编辑动态分组
-                        val group = nodeGroupRepository.getGroupById(groupId)
-                        if (group != null) {
-                            nodeGroupRepository.updateDynamicRule(
-                                groupId = groupId,
-                                subscriptionIds = form.dynamicRule.subscriptionIds,
-                                includeKeywords = form.dynamicRule.includeKeywords,
-                                excludeKeywords = form.dynamicRule.excludeKeywords
-                            )
-                            val updated = group.copy(
-                                name = form.name,
-                                testUrl = form.testUrl,
-                                testUrlName = form.testUrlName,
-                                enabled = form.enabled
-                            )
-                            nodeGroupRepository.updateGroup(updated)
+                        val updated = nodeGroupRepository.updateDynamicGroup(
+                            groupId = groupId,
+                            name = form.name,
+                            testUrl = form.testUrl,
+                            testUrlName = form.testUrlName,
+                            subscriptionIds = form.dynamicRule.subscriptionIds,
+                            includeKeywords = form.dynamicRule.includeKeywords,
+                            excludeKeywords = form.dynamicRule.excludeKeywords
+                        )
+                        if (updated != null) {
                             _detailState.value = _detailState.value.copy(
                                 message = "已更新动态分组规则: ${form.name}"
                             )
@@ -320,8 +366,8 @@ class NodeGroupsEditViewModel(
             try {
                 val group = nodeGroupRepository.getGroupById(groupId)
                 if (group != null) {
-                    // 检查配置中是否有引用这个分组
-                    val resetList = configRepository.resetOutboundIfUsed(group.nodeTags.toSet())
+                    // 检查配置中是否有引用这个分组（通过分组名称）
+                    val resetList = configRepository.resetOutboundIfUsedByGroupName(setOf(group.name))
 
                     nodeGroupRepository.deleteGroupById(groupId)
 

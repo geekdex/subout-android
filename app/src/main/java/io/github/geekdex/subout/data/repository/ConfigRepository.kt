@@ -65,6 +65,40 @@ class ConfigRepository(context: Context) {
     }
 
     /**
+     * 检查给定的节点组名称集合是否在当前配置中被使用。
+     * 返回被引用的规则或分组名称列表。
+     */
+    fun checkNodeGroupUsage(groupNames: Set<String>): List<String> {
+        if (groupNames.isEmpty()) return emptyList()
+        val route = _configState.value.route
+        val usages = mutableListOf<String>()
+
+        if (route.google_outbound in groupNames) {
+            usages.add("Google 全家桶出站")
+        }
+        if (route.social_outbound in groupNames) {
+            usages.add("常用海外社交出站")
+        }
+        if (route.ai_outbound in groupNames) {
+            usages.add("热门 AI 应用出站")
+        }
+        if (route.default_outbound in groupNames) {
+            usages.add("默认出站")
+        }
+        route.customGroups.forEach { group ->
+            if (group.outbound in groupNames) {
+                usages.add("应用分组「${group.name}」")
+            }
+        }
+        route.customDomainGroups.forEach { group ->
+            if (group.outbound in groupNames) {
+                usages.add("域名分组「${group.name}」")
+            }
+        }
+        return usages
+    }
+
+    /**
      * 当某些节点被删除时，检查当前配置。如果有规则使用了这些节点，自动将其重置为 "direct"，
      * 并立即通过 saveConfig() 保存持久化。
      * 返回被重置的规则描述列表。
@@ -138,41 +172,56 @@ class ConfigRepository(context: Context) {
     }
 
     /**
+     * 当节点组被删除或变空时，检查当前配置。如果有规则使用了这些节点组名称，自动将其重置为 "direct"。
+     * 返回被重置的规则描述列表。
+     */
+    fun resetOutboundIfUsedByGroupName(groupNames: Set<String>): List<String> {
+        return resetOutboundIfUsed(groupNames)
+    }
+
+    /**
      * 校验当前配置引用的节点是否仍存在于可用节点列表中（如订阅更新后某些节点下线或被更名）。
      * 若引用了不存在的节点，自动重置为 "direct"。
+     * 
+     * @param availableNodeTags 当前可用的节点 tag 集合
+     * @param availableGroupNames 当前可用的节点组名称集合
      */
-    fun validateAndCleanMissingNodes(availableNodeTags: Set<String>): List<String> {
+    fun validateAndCleanMissingNodes(
+        availableNodeTags: Set<String>,
+        availableGroupNames: Set<String> = emptySet()
+    ): List<String> {
         val standardOutbounds = setOf("", "AUTO-Test", "proxy", "direct", "block")
+        val allValidOutbounds = standardOutbounds + availableNodeTags + availableGroupNames
         val currentConfig = _configState.value
         val route = currentConfig.route
         val resetList = mutableListOf<String>()
 
         var newGoogle = route.google_outbound
-        if (route.google_outbound !in standardOutbounds && route.google_outbound !in availableNodeTags) {
+        if (route.google_outbound !in allValidOutbounds) {
             newGoogle = "direct"
             resetList.add("Google 全家桶出站")
         }
 
         var newSocial = route.social_outbound
-        if (route.social_outbound !in standardOutbounds && route.social_outbound !in availableNodeTags) {
+        if (route.social_outbound !in allValidOutbounds) {
             newSocial = "direct"
             resetList.add("常用海外社交出站")
         }
 
         var newAi = route.ai_outbound
-        if (route.ai_outbound !in standardOutbounds && route.ai_outbound !in availableNodeTags) {
+        if (route.ai_outbound !in allValidOutbounds) {
             newAi = "direct"
             resetList.add("热门 AI 应用出站")
         }
 
         var newDefault = route.default_outbound
-        if (route.default_outbound !in standardOutbounds && route.default_outbound !in availableNodeTags) {
+        if (route.default_outbound !in allValidOutbounds) {
             newDefault = "direct"
             resetList.add("默认出站")
         }
 
         val newGroups = route.customGroups.map { group ->
-            if (group.outbound !in standardOutbounds && group.outbound !in availableNodeTags) {
+            if (group.outbound !in allValidOutbounds) {
                 resetList.add("应用分组「${group.name}」")
                 group.copy(outbound = "direct")
             } else {
@@ -181,7 +230,7 @@ class ConfigRepository(context: Context) {
         }
 
         val newDomainGroups = route.customDomainGroups.map { group ->
-            if (group.outbound !in standardOutbounds && group.outbound !in availableNodeTags) {
+            if (group.outbound !in allValidOutbounds) {
                 resetList.add("域名分组「${group.name}」")
                 group.copy(outbound = "direct")
             } else {

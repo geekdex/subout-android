@@ -6,9 +6,11 @@ import androidx.lifecycle.viewModelScope
 import io.github.geekdex.subout.SuboutApplication
 import io.github.geekdex.subout.data.db.entities.Node
 import io.github.geekdex.subout.data.db.entities.NodeGroup
+import io.github.geekdex.subout.data.db.entities.Subscription
 import io.github.geekdex.subout.data.repository.ConfigRepository
 import io.github.geekdex.subout.data.repository.NodeGroupRepository
 import io.github.geekdex.subout.data.repository.NodeRepository
+import io.github.geekdex.subout.data.repository.SubscriptionRepository
 import io.github.geekdex.subout.domain.generator.ConfigExporter
 import io.github.geekdex.subout.domain.generator.SimpleConfigGenerator
 import io.github.geekdex.subout.domain.model.ManualNodeConfig
@@ -52,7 +54,8 @@ data class NodesUiState(
     val totalTestingCount: Int = 0,
     val isSelectionMode: Boolean = false,
     val selectedNodeIds: Set<Long> = emptySet(),
-    val message: String? = null
+    val message: String? = null,
+    val availableSubscriptions: List<Pair<Long, String>> = emptyList() // (id, name) 用于动态分组
 )
 
 class NodesViewModel(
@@ -60,7 +63,8 @@ class NodesViewModel(
     private val nodeGroupRepository: NodeGroupRepository,
     private val configRepository: ConfigRepository,
     private val configExporter: ConfigExporter,
-    private val configServer: ConfigServer
+    private val configServer: ConfigServer,
+    private val subscriptionRepository: SubscriptionRepository
 ) : ViewModel() {
 
     private val _selectedTab = MutableStateFlow(0)
@@ -111,10 +115,21 @@ class NodesViewModel(
     val uiState: StateFlow<NodesUiState> = combine(
         nodeRepository.nodes,
         nodeGroupRepository.nodeGroups,
+        subscriptionRepository.subscriptions,
         _selectedTab,
         filterFlow,
         statusFlow
-    ) { nodes, groups, tab, filter, status ->
+    ) { flowArray ->
+        @Suppress("UNCHECKED_CAST")
+        val nodes = flowArray[0] as List<Node>
+        @Suppress("UNCHECKED_CAST")
+        val groups = flowArray[1] as List<NodeGroup>
+        @Suppress("UNCHECKED_CAST")
+        val subscriptions = flowArray[2] as List<Subscription>
+        val tab = flowArray[3] as Int
+        val filter = flowArray[4] as FilterParams
+        val status = flowArray[5] as StatusParams
+        
         val filtered = nodes.filter { node ->
             val matchesQuery = filter.query.isBlank() ||
                     node.tag.contains(filter.query, ignoreCase = true) ||
@@ -146,6 +161,8 @@ class NodesViewModel(
             }
         }
         val assignedMap = groupsMap.mapValues { it.value.joinToString(", ") }
+        
+        val availableSubscriptions = subscriptions.map { it.id to it.name }
 
         NodesUiState(
             selectedTab = tab,
@@ -162,7 +179,8 @@ class NodesViewModel(
             totalTestingCount = status.totalCount,
             isSelectionMode = status.isSelection,
             selectedNodeIds = status.selectedIds,
-            message = status.msg
+            message = status.msg,
+            availableSubscriptions = availableSubscriptions
         )
     }.stateIn(
         scope = viewModelScope,
@@ -319,6 +337,22 @@ class NodesViewModel(
         configExporter.exportToFile(jsonStr)
     }
 
+    private suspend fun onNodesRemoved(removedTags: Set<String>): List<String> {
+        if (removedTags.isEmpty()) return emptyList()
+        // 1. 从所有静态组合中移除被删除的节点
+        nodeGroupRepository.removeNodesFromAllManualGroups(removedTags)
+        // 2. 刷新所有动态组合（重新匹配存活节点）
+        nodeGroupRepository.refreshDynamicGroupsNodes()
+        // 3. 检查是否有节点组变空
+        val allGroups = nodeGroupRepository.getAllGroupsSync()
+        val emptyGroupNames = allGroups.filter { it.enabled && it.nodeTags.isEmpty() }.map { it.name }.toSet()
+        // 4. 重置被删除单节点以及变空节点组的出站引用
+        val tagsToReset = removedTags + emptyGroupNames
+        val resetList = configRepository.resetOutboundIfUsed(tagsToReset)
+        syncExportWithGroups()
+        return resetList
+    }
+
     fun deleteSelectedNodes() {
         val ids = _selectedNodeIds.value.toList()
         if (ids.isEmpty()) return
@@ -326,11 +360,9 @@ class NodesViewModel(
         viewModelScope.launch {
             val nodesToDelete = nodeRepository.getNodesByIds(ids)
             val tags = nodesToDelete.map { it.tag }.toSet()
-            val resetList = configRepository.resetOutboundIfUsed(tags)
-            nodeGroupRepository.removeNodesFromAllManualGroups(tags)
             val count = nodeRepository.deleteNodesByIds(ids)
+            val resetList = onNodesRemoved(tags)
             exitSelectionMode()
-            syncExportWithGroups()
             if (resetList.isNotEmpty()) {
                 _message.value = "已删除 $count 个节点，涉及的【${resetList.joinToString("、")}】已自动重置为直连 (direct)"
             } else {
@@ -355,10 +387,8 @@ class NodesViewModel(
         viewModelScope.launch {
             val timeoutNodes = nodeRepository.getTimeoutNodes()
             val tags = timeoutNodes.map { it.tag }.toSet()
-            val resetList = configRepository.resetOutboundIfUsed(tags)
-            nodeGroupRepository.removeNodesFromAllManualGroups(tags)
             val count = nodeRepository.deleteTimeoutNodes()
-            syncExportWithGroups()
+            val resetList = onNodesRemoved(tags)
             if (count > 0) {
                 if (resetList.isNotEmpty()) {
                     _message.value = "已删除 $count 个超时节点，涉及的【${resetList.joinToString("、")}】已自动重置为直连 (direct)"
@@ -375,10 +405,8 @@ class NodesViewModel(
         viewModelScope.launch {
             val disabledNodes = nodeRepository.getDisabledNodes()
             val tags = disabledNodes.map { it.tag }.toSet()
-            val resetList = configRepository.resetOutboundIfUsed(tags)
-            nodeGroupRepository.removeNodesFromAllManualGroups(tags)
             val count = nodeRepository.deleteDisabledNodes()
-            syncExportWithGroups()
+            val resetList = onNodesRemoved(tags)
             if (count > 0) {
                 if (resetList.isNotEmpty()) {
                     _message.value = "已删除 $count 个已禁用节点，涉及的【${resetList.joinToString("、")}】已自动重置为直连 (direct)"
@@ -393,10 +421,8 @@ class NodesViewModel(
 
     fun deleteNode(node: Node) {
         viewModelScope.launch {
-            val resetList = configRepository.resetOutboundIfUsed(setOf(node.tag))
-            nodeGroupRepository.removeNodesFromAllManualGroups(setOf(node.tag))
             nodeRepository.deleteNode(node)
-            syncExportWithGroups()
+            val resetList = onNodesRemoved(setOf(node.tag))
             if (resetList.isNotEmpty()) {
                 _message.value = "已删除节点「${node.tag}」，所引用的【${resetList.joinToString("、")}】已自动重置为直连 (direct)"
             } else {
@@ -452,6 +478,10 @@ class NodesViewModel(
         testUrl: String,
         testUrlName: String,
         nodeTags: List<String>,
+        isDynamic: Boolean = false,
+        includeKeywords: List<String> = emptyList(),
+        excludeKeywords: List<String> = emptyList(),
+        subscriptionIds: List<Long> = emptyList(),
         onResult: (Boolean, String) -> Unit
     ) {
         viewModelScope.launch {
@@ -475,20 +505,41 @@ class NodesViewModel(
                 onResult(false, "已存在同名的单节点「$cleanName」，请更换组合名称")
                 return@launch
             }
-            val distinctTags = nodeTags.map { it.trim() }.filter { it.isNotBlank() }.distinct()
-            if (distinctTags.isEmpty()) {
-                onResult(false, "请至少选择一个节点加入该组合")
-                return@launch
+            
+            if (!isDynamic) {
+                // 静态分组
+                val distinctTags = nodeTags.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+                if (distinctTags.isEmpty()) {
+                    onResult(false, "请至少选择一个节点加入该组合")
+                    return@launch
+                }
+
+                val group = NodeGroup(
+                    name = cleanName,
+                    type = io.github.geekdex.subout.data.db.entities.NodeGroupType.MANUAL.name,
+                    testUrl = testUrl.trim().ifBlank { "https://www.gstatic.com/generate_204" },
+                    testUrlName = testUrlName.trim().ifBlank { "Google Gstatic" },
+                    enabled = true
+                ).copyWithNodeTags(distinctTags)
+
+                nodeGroupRepository.insertGroup(group)
+            } else {
+                // 动态分组
+                if (nodeTags.isEmpty()) {
+                    onResult(false, "当前筛选条件未匹配到任何节点，请调整关键词或订阅")
+                    return@launch
+                }
+                
+                nodeGroupRepository.createDynamicGroup(
+                    name = cleanName,
+                    subscriptionIds = subscriptionIds,
+                    includeKeywords = includeKeywords,
+                    excludeKeywords = excludeKeywords,
+                    testUrl = testUrl.trim().ifBlank { "https://www.gstatic.com/generate_204" },
+                    testUrlName = testUrlName.trim().ifBlank { "Google Gstatic" }
+                )
             }
-
-            val group = NodeGroup(
-                name = cleanName,
-                testUrl = testUrl.trim().ifBlank { "https://www.gstatic.com/generate_204" },
-                testUrlName = testUrlName.trim().ifBlank { "Google Gstatic" },
-                enabled = true
-            ).copyWithNodeTags(distinctTags)
-
-            nodeGroupRepository.insertGroup(group)
+            
             syncExportWithGroups()
             _message.value = "已创建节点组合「$cleanName」"
             onResult(true, "创建成功")
@@ -501,6 +552,10 @@ class NodesViewModel(
         testUrl: String,
         testUrlName: String,
         nodeTags: List<String>,
+        isDynamic: Boolean = false,
+        includeKeywords: List<String> = emptyList(),
+        excludeKeywords: List<String> = emptyList(),
+        subscriptionIds: List<Long> = emptyList(),
         onResult: (Boolean, String) -> Unit
     ) {
         viewModelScope.launch {
@@ -529,20 +584,41 @@ class NodesViewModel(
                 onResult(false, "已存在同名的单节点「$cleanName」，请使用其他组合名称")
                 return@launch
             }
-            val distinctTags = nodeTags.map { it.trim() }.filter { it.isNotBlank() }.distinct()
-            if (distinctTags.isEmpty()) {
-                onResult(false, "请至少选择一个节点加入该组合")
-                return@launch
-            }
 
             val nameChanged = existingGroup.name != cleanName
-            val updatedGroup = existingGroup.copy(
-                name = cleanName,
-                testUrl = testUrl.trim().ifBlank { "https://www.gstatic.com/generate_204" },
-                testUrlName = testUrlName.trim().ifBlank { "Google Gstatic" }
-            ).copyWithNodeTags(distinctTags)
+            
+            if (!isDynamic) {
+                // 静态分组
+                val distinctTags = nodeTags.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+                if (distinctTags.isEmpty()) {
+                    onResult(false, "请至少选择一个节点加入该组合")
+                    return@launch
+                }
 
-            nodeGroupRepository.updateGroup(updatedGroup)
+                val updatedGroup = existingGroup.copy(
+                    name = cleanName,
+                    testUrl = testUrl.trim().ifBlank { "https://www.gstatic.com/generate_204" },
+                    testUrlName = testUrlName.trim().ifBlank { "Google Gstatic" }
+                ).copyWithNodeTags(distinctTags)
+
+                nodeGroupRepository.updateGroup(updatedGroup)
+            } else {
+                // 动态分组
+                if (nodeTags.isEmpty()) {
+                    onResult(false, "当前筛选条件未匹配到任何节点，请调整关键词或订阅")
+                    return@launch
+                }
+                
+                nodeGroupRepository.updateDynamicGroup(
+                    groupId = groupId,
+                    name = cleanName,
+                    testUrl = testUrl.trim().ifBlank { "https://www.gstatic.com/generate_204" },
+                    testUrlName = testUrlName.trim().ifBlank { "Google Gstatic" },
+                    subscriptionIds = subscriptionIds,
+                    includeKeywords = includeKeywords,
+                    excludeKeywords = excludeKeywords
+                )
+            }
 
             if (nameChanged) {
                 val resetList = configRepository.resetOutboundIfUsed(setOf(existingGroup.name))
@@ -606,7 +682,8 @@ class NodesViewModel(
                     app.nodeGroupRepository,
                     app.configRepository,
                     app.configExporter,
-                    app.configServer
+                    app.configServer,
+                    app.subscriptionRepository
                 ) as T
             }
         }

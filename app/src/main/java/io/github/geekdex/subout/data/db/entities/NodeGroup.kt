@@ -12,7 +12,23 @@ import com.google.gson.reflect.TypeToken
  */
 enum class NodeGroupType {
     MANUAL,
-    DYNAMIC
+    DYNAMIC;
+
+    /**
+     * 获取中文显示名称
+     */
+    fun getDisplayName(): String = when (this) {
+        MANUAL -> "静态组合"
+        DYNAMIC -> "动态筛选组合"
+    }
+
+    /**
+     * 获取类型说明
+     */
+    fun getDescription(): String = when (this) {
+        MANUAL -> "手动勾选固定节点，订阅更新时若节点失效会被移除"
+        DYNAMIC -> "按订阅与关键词自动筛选，订阅更新时自动同步匹配节点"
+    }
 }
 
 /**
@@ -25,9 +41,18 @@ data class DynamicMatchRule(
 ) {
     /**
      * 检查节点是否符合此规则
+     * @param nodeName 节点名称/Tag
+     * @param subscriptionId 节点所属订阅 ID（可为 null，如手动添加的节点）
      */
-    fun matches(nodeName: String): Boolean {
-        // 1. 检查排除关键词（如果包含任何排除关键词，则不匹配）
+    fun matches(nodeName: String, subscriptionId: Long? = null): Boolean {
+        // 1. 检查所属订阅（如果指定了订阅列表，必须属于选中的订阅之一）
+        if (subscriptionIds.isNotEmpty()) {
+            if (subscriptionId == null || subscriptionId !in subscriptionIds) {
+                return false
+            }
+        }
+
+        // 2. 检查排除关键词（如果包含任何排除关键词，则不匹配）
         if (excludeKeywords.isNotEmpty()) {
             for (keyword in excludeKeywords) {
                 if (keyword.isNotBlank() && nodeName.contains(keyword, ignoreCase = true)) {
@@ -36,7 +61,7 @@ data class DynamicMatchRule(
             }
         }
 
-        // 2. 检查包含关键词
+        // 3. 检查包含关键词
         if (includeKeywords.isEmpty()) {
             // 如果没有包含关键词，则默认匹配（除非被排除关键词过滤）
             return true
