@@ -564,94 +564,105 @@ object SimpleConfigGenerator {
         // immediately fall back to TCP HTTP/2 instead of hanging on UDP timeouts or unsupported UDP proxies.
         // Using action reject instead of outbound block terminates packets cleanly at the router layer
         // and avoids "listen packet connection using outbound/block: operation not permitted" error.
-        if (routeConfig.isBlockQuic) {
-            rules.add(JsonObject().apply {
-                addProperty("port", 443)
-                addProperty("network", "udp")
-                addProperty("action", "reject")
-            })
-        }
-
-        if (routeConfig.block_ads) {
-            rules.add(JsonObject().apply {
-                addProperty("rule_set", "geosite-category-ads-all")
-                addProperty("action", "reject")
-            })
-        }
-
-        if (routeConfig.bypass_lan) {
-            rules.add(JsonObject().apply {
-                addProperty("ip_is_private", true)
-                addProperty("outbound", "direct")
-            })
-        }
-
-        // 1. Custom App Groups routing (Strict app-level rules placed before general rules)
-        val enabledCustomGroups = routeConfig.customGroups.filter { it.isEnabled && it.packageNames.isNotEmpty() }
-        for (group in enabledCustomGroups) {
-            val groupTarget = resolveOutbound(group.outboundTag, proxyNodeTags, groupTags, hasNodes, targetProxy)
-            val pkgArr = JsonArray()
-            group.packageNames.forEach { pkgArr.add(it) }
-            addRouteRule(groupTarget) {
-                it.add("package_name", pkgArr)
-            }
-        }
-
-        // 1.1 Custom Domain Groups routing
-        val enabledCustomDomainGroups = routeConfig.customDomainGroups.filter { it.isEnabled && it.domainSuffixes.isNotEmpty() }
-        for (group in enabledCustomDomainGroups) {
-            val groupTarget = resolveOutbound(group.outboundTag, proxyNodeTags, groupTags, hasNodes, targetProxy)
-            val domainArr = JsonArray()
-            group.domainSuffixes.forEach { domainArr.add(it) }
-            addRouteRule(groupTarget) {
-                it.add("domain_suffix", domainArr)
-            }
-        }
-
-        // 2. Google Preset routing
-        if (routeConfig.isRouteGoogle) {
-            val googleTarget = resolveOutbound(routeConfig.googleOutbound, proxyNodeTags, groupTags, hasNodes, targetProxy)
-            addRouteRule(googleTarget) {
-                it.add("package_name", AppRulePresets.google.apps.toPackagesJsonArray())
-            }
-            addRouteRule(googleTarget) {
-                it.add("domain_suffix", AppRulePresets.google.domainSuffixes.toJsonArray())
-            }
-            AppRulePresets.google.ruleSets.forEach { rs ->
-                addRouteRule(googleTarget) {
-                    it.addProperty("rule_set", rs)
+        val effectiveRuleOrder = routeConfig.getEffectiveRuleOrder()
+        for (ruleKey in effectiveRuleOrder) {
+            when {
+                ruleKey == "sys_block_quic" -> {
+                    if (routeConfig.isBlockQuic) {
+                        rules.add(JsonObject().apply {
+                            addProperty("port", 443)
+                            addProperty("network", "udp")
+                            addProperty("action", "reject")
+                        })
+                    }
                 }
-            }
-        }
-
-        // 3. Social Preset routing
-        if (routeConfig.isRouteSocial) {
-            val socialTarget = resolveOutbound(routeConfig.socialOutbound, proxyNodeTags, groupTags, hasNodes, targetProxy)
-            addRouteRule(socialTarget) {
-                it.add("package_name", AppRulePresets.social.apps.toPackagesJsonArray())
-            }
-            addRouteRule(socialTarget) {
-                it.add("domain_suffix", AppRulePresets.social.domainSuffixes.toJsonArray())
-            }
-            AppRulePresets.social.ruleSets.forEach { rs ->
-                addRouteRule(socialTarget) {
-                    it.addProperty("rule_set", rs)
+                ruleKey == "sys_block_ads" -> {
+                    if (routeConfig.block_ads) {
+                        rules.add(JsonObject().apply {
+                            addProperty("rule_set", "geosite-category-ads-all")
+                            addProperty("action", "reject")
+                        })
+                    }
                 }
-            }
-        }
-
-        // 4. AI Preset routing
-        if (routeConfig.isRouteAi) {
-            val aiTarget = resolveOutbound(routeConfig.aiOutbound, proxyNodeTags, groupTags, hasNodes, targetProxy)
-            addRouteRule(aiTarget) {
-                it.add("package_name", AppRulePresets.ai.apps.toPackagesJsonArray())
-            }
-            addRouteRule(aiTarget) {
-                it.add("domain_suffix", AppRulePresets.ai.domainSuffixes.toJsonArray())
-            }
-            AppRulePresets.ai.ruleSets.forEach { rs ->
-                addRouteRule(aiTarget) {
-                    it.addProperty("rule_set", rs)
+                ruleKey == "sys_bypass_lan" -> {
+                    if (routeConfig.bypass_lan) {
+                        rules.add(JsonObject().apply {
+                            addProperty("ip_is_private", true)
+                            addProperty("outbound", "direct")
+                        })
+                    }
+                }
+                ruleKey.startsWith("app_group_") -> {
+                    val groupId = ruleKey.removePrefix("app_group_")
+                    val group = routeConfig.customGroups.find { it.id == groupId }
+                    if (group != null && group.isEnabled && group.packageNames.isNotEmpty()) {
+                        val groupTarget = resolveOutbound(group.outboundTag, proxyNodeTags, groupTags, hasNodes, targetProxy)
+                        val pkgArr = JsonArray()
+                        group.packageNames.forEach { pkgArr.add(it) }
+                        addRouteRule(groupTarget) {
+                            it.add("package_name", pkgArr)
+                        }
+                    }
+                }
+                ruleKey.startsWith("domain_group_") -> {
+                    val groupId = ruleKey.removePrefix("domain_group_")
+                    val group = routeConfig.customDomainGroups.find { it.id == groupId }
+                    if (group != null && group.isEnabled && group.domainSuffixes.isNotEmpty()) {
+                        val groupTarget = resolveOutbound(group.outboundTag, proxyNodeTags, groupTags, hasNodes, targetProxy)
+                        val domainArr = JsonArray()
+                        group.domainSuffixes.forEach { domainArr.add(it) }
+                        addRouteRule(groupTarget) {
+                            it.add("domain_suffix", domainArr)
+                        }
+                    }
+                }
+                ruleKey == "preset_google" -> {
+                    if (routeConfig.isRouteGoogle) {
+                        val googleTarget = resolveOutbound(routeConfig.googleOutbound, proxyNodeTags, groupTags, hasNodes, targetProxy)
+                        addRouteRule(googleTarget) {
+                            it.add("package_name", AppRulePresets.google.apps.toPackagesJsonArray())
+                        }
+                        addRouteRule(googleTarget) {
+                            it.add("domain_suffix", AppRulePresets.google.domainSuffixes.toJsonArray())
+                        }
+                        AppRulePresets.google.ruleSets.forEach { rs ->
+                            addRouteRule(googleTarget) {
+                                it.addProperty("rule_set", rs)
+                            }
+                        }
+                    }
+                }
+                ruleKey == "preset_social" -> {
+                    if (routeConfig.isRouteSocial) {
+                        val socialTarget = resolveOutbound(routeConfig.socialOutbound, proxyNodeTags, groupTags, hasNodes, targetProxy)
+                        addRouteRule(socialTarget) {
+                            it.add("package_name", AppRulePresets.social.apps.toPackagesJsonArray())
+                        }
+                        addRouteRule(socialTarget) {
+                            it.add("domain_suffix", AppRulePresets.social.domainSuffixes.toJsonArray())
+                        }
+                        AppRulePresets.social.ruleSets.forEach { rs ->
+                            addRouteRule(socialTarget) {
+                                it.addProperty("rule_set", rs)
+                            }
+                        }
+                    }
+                }
+                ruleKey == "preset_ai" -> {
+                    if (routeConfig.isRouteAi) {
+                        val aiTarget = resolveOutbound(routeConfig.aiOutbound, proxyNodeTags, groupTags, hasNodes, targetProxy)
+                        addRouteRule(aiTarget) {
+                            it.add("package_name", AppRulePresets.ai.apps.toPackagesJsonArray())
+                        }
+                        addRouteRule(aiTarget) {
+                            it.add("domain_suffix", AppRulePresets.ai.domainSuffixes.toJsonArray())
+                        }
+                        AppRulePresets.ai.ruleSets.forEach { rs ->
+                            addRouteRule(aiTarget) {
+                                it.addProperty("rule_set", rs)
+                            }
+                        }
+                    }
                 }
             }
         }

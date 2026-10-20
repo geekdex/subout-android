@@ -1,85 +1,64 @@
 package io.github.geekdex.subout.presentation.ui.simpleconfig
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.AltRoute
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.automirrored.filled.Input
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.FlashOn
-import androidx.compose.material.icons.filled.Hub
-import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuAnchorType
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import io.github.geekdex.subout.data.db.entities.Node
-import io.github.geekdex.subout.data.db.entities.NodeGroup
-import io.github.geekdex.subout.domain.model.AppRulePresets
 import io.github.geekdex.subout.domain.model.CustomAppGroup
 import io.github.geekdex.subout.domain.model.CustomDomainGroup
-import io.github.geekdex.subout.domain.model.InstalledAppInfo
-import io.github.geekdex.subout.domain.model.PresetCategory
+import io.github.geekdex.subout.domain.model.RouteRuleItem
 import io.github.geekdex.subout.presentation.viewmodel.SimpleConfigViewModel
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -90,6 +69,10 @@ fun SimpleConfigScreen(
     val uiState by viewModel.uiState.collectAsState()
     val config = uiState.config
     val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
+
+    // 4 Tabs: 0: DNS配置, 1: 入站配置, 2: 路由配置 (Default/Focus), 3: 日志配置
+    val pagerState = rememberPagerState(initialPage = 2, pageCount = { 4 })
 
     var showAddGroupDialog by remember { mutableStateOf(false) }
     var newGroupName by remember { mutableStateOf("") }
@@ -273,631 +256,80 @@ fun SimpleConfigScreen(
     }
 
     Scaffold(
-        contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            TopAppBar(
-                title = { Text("分流与规则配置", fontWeight = FontWeight.Bold) },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            )
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            // 1. DNS Section
-            ConfigSectionCard(
-                title = "DNS 配置",
-                icon = Icons.Default.Dns
-            ) {
-                var dnsModeExpanded by remember { mutableStateOf(false) }
-                val dnsModes = listOf(
-                    Pair("preset_fakeip", "FakeIP 模式 (推荐)"),
-                    Pair("preset_domestic_foreign", "国内外分流模式"),
-                    Pair("fast_public", "快速公共 DNS"),
-                    Pair("custom", "自定义 DNS")
-                )
-
-                ExposedDropdownMenuBox(
-                    expanded = dnsModeExpanded,
-                    onExpandedChange = { dnsModeExpanded = !dnsModeExpanded }
-                ) {
-                    OutlinedTextField(
-                        value = dnsModes.find { it.first == config.dns.mode }?.second ?: config.dns.mode,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("DNS 模式") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dnsModeExpanded) },
-                        modifier = Modifier
-                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
-                            .fillMaxWidth()
-                    )
-                    ExposedDropdownMenu(
-                        expanded = dnsModeExpanded,
-                        onDismissRequest = { dnsModeExpanded = false }
-                    ) {
-                        dnsModes.forEach { (modeKey, modeName) ->
-                            DropdownMenuItem(
-                                text = { Text(modeName) },
-                                onClick = {
-                                    val foreign = when (modeKey) {
-                                        "preset_fakeip" -> "fakeip"
-                                        "preset_domestic_foreign" -> "https://1.1.1.1/dns-query"
-                                        "fast_public" -> "223.5.5.5"
-                                        else -> config.dns.foreign_dns
-                                    }
-                                    viewModel.updateDns(mode = modeKey, foreignDns = foreign)
-                                    dnsModeExpanded = false
-                                }
+            Column(modifier = Modifier.fillMaxWidth()) {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text("分流与规则配置", fontWeight = FontWeight.Bold)
+                            Text(
+                                "sing-box 1.10+ 标准配置生成器",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline
                             )
                         }
-                    }
-                }
-
-                OutlinedTextField(
-                    value = config.dns.domestic_dns,
-                    onValueChange = { viewModel.updateDns(domesticDns = it) },
-                    label = { Text("国内 DNS 服务器") },
-                    placeholder = { Text("例如 223.5.5.5") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                OutlinedTextField(
-                    value = config.dns.foreign_dns,
-                    onValueChange = { viewModel.updateDns(foreignDns = it) },
-                    label = { Text("国外 DNS 服务器") },
-                    placeholder = { Text("fakeip 或 https://1.1.1.1/dns-query") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                        Text("抑制 HTTPS/SVCB 查询 (防 ECH 加密)", style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            "拦截 Type 65 查询以防浏览器加密 SNI 破坏分流嗅探，杜绝 FakeIP 报错与代理域名泄露",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline
-                        )
-                    }
-                    Switch(
-                        checked = config.dns.isSuppressEch,
-                        onCheckedChange = { viewModel.updateDns(suppressEch = it) }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface
                     )
-                }
-            }
-
-            // 2. Inbounds Section
-            ConfigSectionCard(
-                title = "入站配置",
-                icon = Icons.AutoMirrored.Filled.Input
-            ) {
-                var inboundExpanded by remember { mutableStateOf(false) }
-                val inboundTypes = listOf(
-                    Pair("tun", "TUN 模式 (推荐，生成虚拟网卡配置)"),
-                    Pair("mixed", "Mixed 端口 (HTTP/SOCKS5 混合代理)")
                 )
 
-                ExposedDropdownMenuBox(
-                    expanded = inboundExpanded,
-                    onExpandedChange = { inboundExpanded = !inboundExpanded }
+                // 4-Tab Navigation Bar
+                val tabs = listOf(
+                    Pair("DNS配置", Icons.Default.Dns),
+                    Pair("入站配置", Icons.AutoMirrored.Filled.Input),
+                    Pair("路由配置", Icons.AutoMirrored.Filled.AltRoute),
+                    Pair("日志配置", Icons.AutoMirrored.Filled.Article)
+                )
+
+                PrimaryTabRow(
+                    selectedTabIndex = pagerState.currentPage,
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.primary,
+                    divider = { HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant) }
                 ) {
-                    OutlinedTextField(
-                        value = inboundTypes.find { it.first == config.inbound.inbound_type }?.second ?: config.inbound.inbound_type,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("入站类型") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = inboundExpanded) },
-                        modifier = Modifier
-                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
-                            .fillMaxWidth()
-                    )
-                    ExposedDropdownMenu(
-                        expanded = inboundExpanded,
-                        onDismissRequest = { inboundExpanded = false }
-                    ) {
-                        inboundTypes.forEach { (typeKey, typeName) ->
-                            DropdownMenuItem(
-                                text = { Text(typeName) },
-                                onClick = {
-                                    viewModel.updateInbound(inboundType = typeKey)
-                                    inboundExpanded = false
+                    tabs.forEachIndexed { index, (title, icon) ->
+                        val isSelected = pagerState.currentPage == index
+                        Tab(
+                            selected = isSelected,
+                            onClick = {
+                                coroutineScope.launch {
+                                    pagerState.animateScrollToPage(index)
                                 }
-                            )
-                        }
-                    }
-                }
-
-                if (config.inbound.inbound_type == "tun") {
-                    var stackExpanded by remember { mutableStateOf(false) }
-                    val stacks = listOf(
-                        Pair("mixed", "mixed (推荐，混合内核与虚拟栈，稳定低延迟)"),
-                        Pair("system", "system (纯系统原生栈，TCP极速，部分系统UDP不稳)"),
-                        Pair("gvisor", "gvisor (Google 虚拟网络栈，兼容性好，CPU略高)")
-                    )
-
-                    ExposedDropdownMenuBox(
-                        expanded = stackExpanded,
-                        onExpandedChange = { stackExpanded = !stackExpanded }
-                    ) {
-                        OutlinedTextField(
-                            value = stacks.find { it.first == config.inbound.tun_stack }?.second ?: config.inbound.tun_stack,
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("TUN 堆栈 (Stack)") },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = stackExpanded) },
-                            modifier = Modifier
-                                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
-                                .fillMaxWidth()
-                        )
-                        ExposedDropdownMenu(
-                            expanded = stackExpanded,
-                            onDismissRequest = { stackExpanded = false }
-                        ) {
-                            stacks.forEach { (stackKey, stackDesc) ->
-                                DropdownMenuItem(
-                                    text = { Text(stackDesc) },
-                                    onClick = {
-                                        viewModel.updateInbound(tunStack = stackKey)
-                                        stackExpanded = false
-                                    }
+                            },
+                            text = {
+                                Text(
+                                    text = title,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                            },
+                            icon = {
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = title,
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
-                        }
-                    }
-
-                    Text(
-                        "提示：Android SFA 推荐首选 mixed 栈。TCP 走系统原生内核保障极速吞吐，UDP/DNS 走 gVisor 独立处理以杜绝权限受限与丢包。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline,
-                        modifier = Modifier.padding(horizontal = 4.dp)
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text("自动配置路由 (Auto Route)", style = MaterialTheme.typography.bodyMedium)
-                            Text("自动接管系统路由表流量", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                        }
-                        Switch(
-                            checked = config.inbound.tun_auto_route,
-                            onCheckedChange = { viewModel.updateInbound(tunAutoRoute = it) }
-                        )
-                    }
-                } else {
-                    OutlinedTextField(
-                        value = config.inbound.mixed_port.toString(),
-                        onValueChange = {
-                            val p = it.toIntOrNull() ?: config.inbound.mixed_port
-                            viewModel.updateInbound(mixedPort = p)
-                        },
-                        label = { Text("Mixed 混合代理端口") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text("允许局域网连接 (Allow LAN)", style = MaterialTheme.typography.bodyMedium)
-                            Text("监听 0.0.0.0 允许同局域网设备接入", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                        }
-                        Switch(
-                            checked = config.inbound.allow_lan,
-                            onCheckedChange = { viewModel.updateInbound(allowLan = it) }
                         )
                     }
                 }
             }
-
-            // 3. Route Section
-            ConfigSectionCard(
-                title = "路由基础配置",
-                icon = Icons.AutoMirrored.Filled.AltRoute
-            ) {
-                var routeModeExpanded by remember { mutableStateOf(false) }
-                val routeModes = listOf(
-                    Pair("smart", "智能分流 (绕过大陆/国内直连，推荐)"),
-                    Pair("global", "全局代理 (所有流量走代理)"),
-                    Pair("gfw", "GFW 列表代理 (仅被封锁域名走代理)"),
-                    Pair("direct", "全部直连 (不走代理)")
-                )
-
-                ExposedDropdownMenuBox(
-                    expanded = routeModeExpanded,
-                    onExpandedChange = { routeModeExpanded = !routeModeExpanded }
-                ) {
-                    OutlinedTextField(
-                        value = routeModes.find { it.first == config.route.mode }?.second ?: config.route.mode,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("路由模式") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = routeModeExpanded) },
-                        modifier = Modifier
-                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
-                            .fillMaxWidth()
-                    )
-                    ExposedDropdownMenu(
-                        expanded = routeModeExpanded,
-                        onDismissRequest = { routeModeExpanded = false }
-                    ) {
-                        routeModes.forEach { (modeKey, modeName) ->
-                            DropdownMenuItem(
-                                text = { Text(modeName) },
-                                onClick = {
-                                    viewModel.updateRoute(mode = modeKey)
-                                    routeModeExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
-
-                OutboundSelectorDropdown(
-                    selectedOutbound = config.route.default_outbound,
-                    onOutboundSelected = { viewModel.updateRoute(defaultOutbound = it) },
-                    nodeGroups = uiState.nodeGroups,
-                    nodes = uiState.nodes,
-                    allowDefaultFollow = false,
-                    allowBlock = false,
-                    label = "默认出站 (Default Outbound)"
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text("拦截常见广告 (Ad Blocking)", style = MaterialTheme.typography.bodyMedium)
-                        Text("使用 geosite-category-ads-all 规则阻断广告", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                    }
-                    Switch(
-                        checked = config.route.block_ads,
-                        onCheckedChange = { viewModel.updateRoute(blockAds = it) }
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text("绕过局域网流量 (Bypass LAN)", style = MaterialTheme.typography.bodyMedium)
-                        Text("私有网络 IP (192.168.x / 10.x 等) 强制直连", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                    }
-                    Switch(
-                        checked = config.route.bypass_lan,
-                        onCheckedChange = { viewModel.updateRoute(bypassLan = it) }
-                    )
-                }
-            }
-
-            // 4. WYSIWYG App Routing Section
-            ConfigSectionCard(
-                title = "常用应用分流 (所见即所得)",
-                icon = Icons.Default.Apps
-            ) {
-                Text(
-                    text = "透明直观的海外应用专属规则，支持一键配置。自动接管 Google 全家桶、主流海外社交与热门 AI，防止握手超时与白屏转圈。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                // 一键配置快捷按钮栏
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = { viewModel.enableAllRecommended() },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("一键开启推荐", style = MaterialTheme.typography.labelMedium)
-                    }
-
-                    OutlinedButton(
-                        onClick = { viewModel.forceAllProxy() },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Default.FlashOn, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("一键强制代理", style = MaterialTheme.typography.labelMedium)
-                    }
-                }
-
-                // 1) Google 全家桶
-                PresetAppRuleItem(
-                    category = AppRulePresets.google,
-                    enabled = config.route.isRouteGoogle,
-                    onEnabledChange = { viewModel.updateRoute(routeGoogle = it) },
-                    customOutbound = config.route.googleOutbound,
-                    onOutboundChange = { viewModel.updateRoute(googleOutbound = it) },
-                    nodeGroups = uiState.nodeGroups,
-                    nodes = uiState.nodes
-                )
-
-                // 2) 国际社交与通讯
-                PresetAppRuleItem(
-                    category = AppRulePresets.social,
-                    enabled = config.route.isRouteSocial,
-                    onEnabledChange = { viewModel.updateRoute(routeSocial = it) },
-                    customOutbound = config.route.socialOutbound,
-                    onOutboundChange = { viewModel.updateRoute(socialOutbound = it) },
-                    nodeGroups = uiState.nodeGroups,
-                    nodes = uiState.nodes
-                )
-
-                // 3) 热门 AI 助手
-                PresetAppRuleItem(
-                    category = AppRulePresets.ai,
-                    enabled = config.route.isRouteAi,
-                    onEnabledChange = { viewModel.updateRoute(routeAi = it) },
-                    customOutbound = config.route.aiOutbound,
-                    onOutboundChange = { viewModel.updateRoute(aiOutbound = it) },
-                    nodeGroups = uiState.nodeGroups,
-                    nodes = uiState.nodes
-                )
-
-                // 4) 阻断 QUIC (UDP 443)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("阻断 QUIC (UDP 443 协议)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                        Text("强迫 YouTube / Play 商店立即回退至高速稳定 TCP 隧道，彻底解决视频首包无限转圈缓冲", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Switch(
-                        checked = config.route.isBlockQuic,
-                        onCheckedChange = { viewModel.updateRoute(blockQuic = it) }
-                    )
-                }
-            }
-
-            // 5. Custom App Groups Section
-            ConfigSectionCard(
-                title = "自定义应用分流分组",
-                icon = Icons.Default.Category
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "手动选择手机应用到分组，自定义走哪个流量",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline
-                        )
-                        Text(
-                            text = "严格互斥：一个应用只能归属一个组，无冗余冲突",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    FilledTonalButton(
-                        onClick = {
-                            newGroupName = "自定义分组 ${config.route.customGroups.size + 1}"
-                            showAddGroupDialog = true
-                        }
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("添加分组")
-                    }
-                }
-
-                if (config.route.customGroups.isEmpty()) {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = "暂无自定义分组",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "点击上方“添加分组”，可将特定应用指定走独立节点、直连或拦截",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                        }
-                    }
-                } else {
-                    config.route.customGroups.forEach { group ->
-                        CustomAppGroupItem(
-                            group = group,
-                            installedApps = uiState.installedApps,
-                            nodeGroups = uiState.nodeGroups,
-                            nodes = uiState.nodes,
-                            onRename = {
-                                renameGroupName = group.name
-                                groupToRename = group
-                            },
-                            onDelete = { viewModel.deleteCustomGroup(group.id) },
-                            onEnabledChange = { viewModel.updateCustomGroupEnabled(group.id, it) },
-                            onOutboundChange = { viewModel.updateCustomGroupOutbound(group.id, it) },
-                            onManageApps = { activePickingGroupId = group.id }
-                        )
-                    }
-                }
-            }
-
-            // 6. Custom Domain Groups Section
-            ConfigSectionCard(
-                title = "自定义域名后缀分组",
-                icon = Icons.Default.Language
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "手动添加域名后缀到分组，自定义走哪个流量",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline
-                        )
-                        Text(
-                            text = "严格互斥：一个域名只能归属一个组，无冗余冲突",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    FilledTonalButton(
-                        onClick = {
-                            newDomainGroupName = "域名分组 ${config.route.customDomainGroups.size + 1}"
-                            showAddDomainGroupDialog = true
-                        }
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("添加分组")
-                    }
-                }
-
-                if (config.route.customDomainGroups.isEmpty()) {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = "暂无自定义域名分组",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "点击上方“添加分组”，可将特定域名（如 github.com）指定走独立节点、直连或拦截",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                        }
-                    }
-                } else {
-                    config.route.customDomainGroups.forEach { group ->
-                        CustomDomainGroupItem(
-                            group = group,
-                            nodeGroups = uiState.nodeGroups,
-                            nodes = uiState.nodes,
-                            onRename = {
-                                renameDomainGroupName = group.name
-                                domainGroupToRename = group
-                            },
-                            onDelete = { viewModel.deleteCustomDomainGroup(group.id) },
-                            onEnabledChange = { viewModel.updateCustomDomainGroupEnabled(group.id, it) },
-                            onOutboundChange = { viewModel.updateCustomDomainGroupOutbound(group.id, it) },
-                            onManageDomains = { activePickingDomainGroupId = group.id }
-                        )
-                    }
-                }
-            }
-
-            // 7. Log Section
-            ConfigSectionCard(
-                title = "日志配置",
-                icon = Icons.AutoMirrored.Filled.Article
-            ) {
-                var logLevelExpanded by remember { mutableStateOf(false) }
-                val logLevels = listOf("trace", "debug", "info", "warn", "error")
-
-                ExposedDropdownMenuBox(
-                    expanded = logLevelExpanded,
-                    onExpandedChange = { logLevelExpanded = !logLevelExpanded }
-                ) {
-                    OutlinedTextField(
-                        value = config.log.level,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("日志级别") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = logLevelExpanded) },
-                        modifier = Modifier
-                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
-                            .fillMaxWidth()
-                    )
-                    ExposedDropdownMenu(
-                        expanded = logLevelExpanded,
-                        onDismissRequest = { logLevelExpanded = false }
-                    ) {
-                        logLevels.forEach { level ->
-                            DropdownMenuItem(
-                                text = { Text(level) },
-                                onClick = {
-                                    viewModel.updateLog(level = level)
-                                    logLevelExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("打印时间戳", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
-                        checked = config.log.timestamp,
-                        onCheckedChange = { viewModel.updateLog(timestamp = it) }
-                    )
-                }
-            }
-
-            // 实时生效状态与快捷跳转导出
+        },
+        bottomBar = {
+            // Live Status & Export Button Bottom Docked Bar
             Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 3.dp,
+                shadowElevation = 8.dp,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp)
+                    .navigationBarsPadding()
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -905,764 +337,167 @@ fun SimpleConfigScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.weight(1f)
                     ) {
-                        Icon(
-                            Icons.Default.Check,
-                            contentDescription = null,
-                            tint = Color(0xFF2E7D32),
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "配置实时生效，无需手动保存",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFFE8F5E9),
+                            modifier = Modifier.padding(end = 8.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Check,
+                                contentDescription = null,
+                                tint = Color(0xFF2E7D32),
+                                modifier = Modifier
+                                    .padding(4.dp)
+                                    .size(16.dp)
+                            )
+                        }
+                        Column {
+                            Text(
+                                text = "配置实时生效",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "无需手动保存，一键即可导出",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
                     }
 
                     Button(
                         onClick = onNavigateToExport,
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text("导出与服务")
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun PresetAppRuleItem(
-    category: PresetCategory,
-    enabled: Boolean,
-    onEnabledChange: (Boolean) -> Unit,
-    customOutbound: String,
-    onOutboundChange: (String) -> Unit,
-    nodeGroups: List<NodeGroup>,
-    nodes: List<Node>
-) {
-    var expandedDetails by remember { mutableStateOf(false) }
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(category.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                    Text(category.summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Switch(
-                    checked = enabled,
-                    onCheckedChange = onEnabledChange
-                )
-            }
-
-            if (enabled) {
-                OutboundSelectorDropdown(
-                    selectedOutbound = customOutbound,
-                    onOutboundSelected = onOutboundChange,
-                    nodeGroups = nodeGroups,
-                    nodes = nodes,
-                    allowDefaultFollow = true,
-                    allowBlock = true,
-                    label = "指定出站节点 / 组合策略"
-                )
-
-                // Expand/Collapse Details Button
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { expandedDetails = !expandedDetails }
-                        .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = if (expandedDetails) "收起规则明细" else "查看包含应用与域名 (${category.apps.size} 个应用)",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Icon(
-                        imageVector = if (expandedDetails) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-
-                if (expandedDetails) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 4.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text("包含应用与包名 (package_name):", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                        category.apps.forEach { app ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("• ${app.name}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("(${app.packageName})", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text("包含规则集 (rule_set):", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                        Text(category.ruleSets.joinToString(", "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-
-                        Text("核心域名后缀 (domain_suffix):", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                        Text(category.domainSuffixes.joinToString(", "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun ConfigSectionCard(
-    title: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    content: @Composable () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    icon,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            content()
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun CustomAppGroupItem(
-    group: CustomAppGroup,
-    installedApps: List<InstalledAppInfo>,
-    nodeGroups: List<NodeGroup>,
-    nodes: List<Node>,
-    onRename: () -> Unit,
-    onDelete: () -> Unit,
-    onEnabledChange: (Boolean) -> Unit,
-    onOutboundChange: (String) -> Unit,
-    onManageApps: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            // Row 1: Name, Rename, Switch, Delete
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(
-                        text = group.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    IconButton(onClick = onRename, modifier = Modifier.size(32.dp)) {
-                        Icon(
-                            Icons.Default.Edit,
-                            contentDescription = "重命名",
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(
-                        checked = group.isEnabled,
-                        onCheckedChange = onEnabledChange
-                    )
-                    IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = "删除分组",
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                    }
-                }
-            }
-
-            if (group.isEnabled) {
-                OutboundSelectorDropdown(
-                    selectedOutbound = group.outboundTag,
-                    onOutboundSelected = onOutboundChange,
-                    nodeGroups = nodeGroups,
-                    nodes = nodes,
-                    allowDefaultFollow = true,
-                    allowBlock = true,
-                    label = "分流走向 (走哪个流量)"
-                )
-
-                // Selected Apps Chips Preview
-                val appNames = remember(group.packageNames, installedApps) {
-                    group.packageNames.map { pkg ->
-                        installedApps.find { it.packageName == pkg }?.name ?: pkg
-                    }
-                }
-
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = "已包含 ${group.packageNames.size} 款应用:",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    if (appNames.isEmpty()) {
-                        Text(
-                            text = "尚未添加应用，点击下方按钮从手机应用中挑选",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline
-                        )
-                    } else {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            appNames.take(3).forEach { name ->
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surfaceVariant,
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Text(
-                                        text = name,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-                            if (appNames.size > 3) {
-                                Surface(
-                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Text(
-                                        text = "+${appNames.size - 3} 更多",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    OutlinedButton(
-                        onClick = onManageApps,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Text("导出与服务", fontWeight = FontWeight.SemiBold)
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("选择手机应用 (已选 ${group.packageNames.size} 款)")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
                     }
                 }
             }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun CustomDomainGroupItem(
-    group: CustomDomainGroup,
-    nodeGroups: List<NodeGroup>,
-    nodes: List<Node>,
-    onRename: () -> Unit,
-    onDelete: () -> Unit,
-    onEnabledChange: (Boolean) -> Unit,
-    onOutboundChange: (String) -> Unit,
-    onManageDomains: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        )
-    ) {
-        Column(
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
+    ) { innerPadding ->
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .fillMaxSize()
+                .padding(innerPadding)
         ) {
-            // Row 1: Name, Rename, Switch, Delete
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(
-                        text = group.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize()
+            ) { page ->
+                when (page) {
+                    0 -> DnsConfigTab(
+                        dnsConfig = config.dns,
+                        onUpdateDns = { mode, domestic, foreign, suppressEch ->
+                            viewModel.updateDns(mode, domestic, foreign, suppressEch)
+                        }
                     )
-                    IconButton(onClick = onRename, modifier = Modifier.size(32.dp)) {
-                        Icon(
-                            Icons.Default.Edit,
-                            contentDescription = "重命名",
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(
-                        checked = group.isEnabled,
-                        onCheckedChange = onEnabledChange
+                    1 -> InboundConfigTab(
+                        inboundConfig = config.inbound,
+                        onUpdateInbound = { inboundType, mixedPort, allowLan, tunStack, tunAutoRoute ->
+                            viewModel.updateInbound(inboundType, mixedPort, allowLan, tunStack, tunAutoRoute)
+                        }
                     )
-                    IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = "删除分组",
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                    }
-                }
-            }
-
-            if (group.isEnabled) {
-                OutboundSelectorDropdown(
-                    selectedOutbound = group.outboundTag,
-                    onOutboundSelected = onOutboundChange,
-                    nodeGroups = nodeGroups,
-                    nodes = nodes,
-                    allowDefaultFollow = true,
-                    allowBlock = true,
-                    label = "分流走向 (走哪个流量)"
-                )
-
-                // Selected Domains Chips Preview
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = "已包含 ${group.domainSuffixes.size} 个域名后缀:",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    if (group.domainSuffixes.isEmpty()) {
-                        Text(
-                            text = "尚未添加域名，点击下方按钮添加自定义域名后缀",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline
-                        )
-                    } else {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            group.domainSuffixes.take(3).forEach { domain ->
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surfaceVariant,
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Text(
-                                        text = domain,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+                    2 -> RouteConfigTab(
+                        routeConfig = config.route,
+                        installedApps = uiState.installedApps,
+                        nodeGroups = uiState.nodeGroups,
+                        nodes = uiState.nodes,
+                        onUpdateRouteMode = { viewModel.updateRoute(mode = it) },
+                        onUpdateDefaultOutbound = { viewModel.updateRoute(defaultOutbound = it) },
+                        onToggleRule = { rule, isChecked ->
+                            when (rule) {
+                                is RouteRuleItem.SystemRule -> {
+                                    when (rule.systemId) {
+                                        "sys_block_quic" -> viewModel.updateRoute(blockQuic = isChecked)
+                                        "sys_block_ads" -> viewModel.updateRoute(blockAds = isChecked)
+                                        "sys_bypass_lan" -> viewModel.updateRoute(bypassLan = isChecked)
+                                    }
+                                }
+                                is RouteRuleItem.PresetRule -> {
+                                    when (rule.presetId) {
+                                        "preset_google" -> viewModel.updateRoute(routeGoogle = isChecked)
+                                        "preset_social" -> viewModel.updateRoute(routeSocial = isChecked)
+                                        "preset_ai" -> viewModel.updateRoute(routeAi = isChecked)
+                                    }
+                                }
+                                is RouteRuleItem.AppGroupRule -> {
+                                    viewModel.updateCustomGroupEnabled(rule.group.id, isChecked)
+                                }
+                                is RouteRuleItem.DomainGroupRule -> {
+                                    viewModel.updateCustomDomainGroupEnabled(rule.group.id, isChecked)
                                 }
                             }
-                            if (group.domainSuffixes.size > 3) {
-                                Surface(
-                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Text(
-                                        text = "+${group.domainSuffixes.size - 3} 更多",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
+                        },
+                        onRuleOutboundChange = { rule, newOutbound ->
+                            when (rule) {
+                                is RouteRuleItem.PresetRule -> {
+                                    when (rule.presetId) {
+                                        "preset_google" -> viewModel.updateRoute(googleOutbound = newOutbound)
+                                        "preset_social" -> viewModel.updateRoute(socialOutbound = newOutbound)
+                                        "preset_ai" -> viewModel.updateRoute(aiOutbound = newOutbound)
+                                    }
                                 }
-                            }
-                        }
-                    }
-
-                    OutlinedButton(
-                        onClick = onManageDomains,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("管理域名后缀 (已添加 ${group.domainSuffixes.size} 个)")
-                    }
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun OutboundSelectorDropdown(
-    selectedOutbound: String,
-    onOutboundSelected: (String) -> Unit,
-    nodeGroups: List<NodeGroup>,
-    nodes: List<Node>,
-    modifier: Modifier = Modifier.fillMaxWidth(),
-    label: String = "指定出站 / 分流走向",
-    allowDefaultFollow: Boolean = false,
-    allowBlock: Boolean = true
-) {
-    var expanded by remember { mutableStateOf(false) }
-
-    val displayInfo = remember(selectedOutbound, nodeGroups, nodes, allowDefaultFollow) {
-        when {
-            selectedOutbound.isBlank() -> {
-                if (allowDefaultFollow) "默认跟随主代理 (推荐)" else "未指定出站 (走默认)"
-            }
-            selectedOutbound == "AUTO-Test" -> "自动测速优选 (AUTO-Test)"
-            selectedOutbound == "proxy" -> "主代理策略 (proxy)"
-            selectedOutbound == "direct" -> "直连 (direct - 不走代理)"
-            selectedOutbound == "block" -> "拦截 (block - 禁止联网)"
-            else -> {
-                val group = nodeGroups.find { it.name == selectedOutbound }
-                if (group != null) {
-                    "组合: ${group.name} (${group.nodeTags.size} 节点)"
-                } else {
-                    val node = nodes.find { it.tag == selectedOutbound }
-                    if (node != null) {
-                        "节点: ${node.tag} (${node.protocol})"
-                    } else {
-                        selectedOutbound
-                    }
-                }
-            }
-        }
-    }
-
-    ExposedDropdownMenuBox(
-        expanded = expanded,
-        onExpandedChange = { expanded = !expanded },
-        modifier = modifier
-    ) {
-        OutlinedTextField(
-            value = displayInfo,
-            onValueChange = {},
-            readOnly = true,
-            label = { Text(label) },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier = Modifier
-                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
-                .fillMaxWidth()
-        )
-
-        ExposedDropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            modifier = Modifier.heightIn(max = 380.dp)
-        ) {
-            // Section 1: 系统策略
-            Text(
-                text = "系统策略",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-            )
-
-            if (allowDefaultFollow) {
-                DropdownMenuItem(
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.AltRoute,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    },
-                    text = {
-                        Column {
-                            Text("默认跟随主代理 (推荐)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                            Text("跟随全局默认路由出站策略", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                        }
-                    },
-                    trailingIcon = if (selectedOutbound.isBlank()) {
-                        { Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
-                    } else null,
-                    onClick = {
-                        onOutboundSelected("")
-                        expanded = false
-                    }
-                )
-            }
-
-            DropdownMenuItem(
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.FlashOn,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.secondary
-                    )
-                },
-                text = {
-                    Column {
-                        Text("自动测速优选 (AUTO-Test)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                        Text("优选所有可用节点中延迟最低者", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                    }
-                },
-                trailingIcon = if (selectedOutbound == "AUTO-Test") {
-                    { Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
-                } else null,
-                onClick = {
-                    onOutboundSelected("AUTO-Test")
-                    expanded = false
-                }
-            )
-
-            DropdownMenuItem(
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.AltRoute,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.outline
-                    )
-                },
-                text = {
-                    Column {
-                        Text("主代理策略 (proxy)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                        Text("在 sing-box / SFA 客户端由用户手动选择节点", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                    }
-                },
-                trailingIcon = if (selectedOutbound == "proxy") {
-                    { Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
-                } else null,
-                onClick = {
-                    onOutboundSelected("proxy")
-                    expanded = false
-                }
-            )
-
-            DropdownMenuItem(
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = Color(0xFF2E7D32)
-                    )
-                },
-                text = {
-                    Column {
-                        Text("直连 (direct)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                        Text("直接联网，不通过代理", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                    }
-                },
-                trailingIcon = if (selectedOutbound == "direct") {
-                    { Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
-                } else null,
-                onClick = {
-                    onOutboundSelected("direct")
-                    expanded = false
-                }
-            )
-
-            if (allowBlock) {
-                DropdownMenuItem(
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                    },
-                    text = {
-                        Column {
-                            Text("拦截 (block)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                            Text("直接阻断联网请求", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                        }
-                    },
-                    trailingIcon = if (selectedOutbound == "block") {
-                        { Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
-                    } else null,
-                    onClick = {
-                        onOutboundSelected("block")
-                        expanded = false
-                    }
-                )
-            }
-
-            // Section 2: 节点组合 (Node Groups)
-            if (nodeGroups.isNotEmpty()) {
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                Text(
-                    text = "节点组合 (${nodeGroups.size})",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                )
-
-                nodeGroups.forEach { group ->
-                    val isSelected = selectedOutbound == group.name
-                    DropdownMenuItem(
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Hub,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        },
-                        text = {
-                            Column {
-                                Text(
-                                    text = group.name,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = "${group.nodeTags.size} 个节点 · 测速: ${group.testUrlName.ifBlank { "Google 204" }}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.outline,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                is RouteRuleItem.AppGroupRule -> {
+                                    viewModel.updateCustomGroupOutbound(rule.group.id, newOutbound)
+                                }
+                                is RouteRuleItem.DomainGroupRule -> {
+                                    viewModel.updateCustomDomainGroupOutbound(rule.group.id, newOutbound)
+                                }
+                                else -> {}
                             }
                         },
-                        trailingIcon = if (isSelected) {
-                            { Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
-                        } else null,
-                        onClick = {
-                            onOutboundSelected(group.name)
-                            expanded = false
+                        onReorderRules = { newOrder ->
+                            viewModel.reorderRules(newOrder)
+                        },
+                        onResetOrder = {
+                            viewModel.resetRuleOrder()
+                        },
+                        onEnableRecommended = {
+                            viewModel.enableAllRecommended()
+                        },
+                        onForceAllProxy = {
+                            viewModel.forceAllProxy()
+                        },
+                        onAddAppGroup = {
+                            newGroupName = "自定义分组 ${config.route.customGroups.size + 1}"
+                            showAddGroupDialog = true
+                        },
+                        onAddDomainGroup = {
+                            newDomainGroupName = "域名分组 ${config.route.customDomainGroups.size + 1}"
+                            showAddDomainGroupDialog = true
+                        },
+                        onManageGroupApps = { groupId ->
+                            activePickingGroupId = groupId
+                        },
+                        onManageGroupDomains = { groupId ->
+                            activePickingDomainGroupId = groupId
+                        },
+                        onRenameAppGroup = { group ->
+                            renameGroupName = group.name
+                            groupToRename = group
+                        },
+                        onDeleteAppGroup = { groupId ->
+                            viewModel.deleteCustomGroup(groupId)
+                        },
+                        onRenameDomainGroup = { group ->
+                            renameDomainGroupName = group.name
+                            domainGroupToRename = group
+                        },
+                        onDeleteDomainGroup = { groupId ->
+                            viewModel.deleteCustomDomainGroup(groupId)
                         }
                     )
-                }
-            }
-
-            // Section 3: 单个节点 (Single Nodes)
-            if (nodes.isNotEmpty()) {
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                Text(
-                    text = "单个节点 (${nodes.size})",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                )
-
-                nodes.forEach { node ->
-                    val isSelected = selectedOutbound == node.tag
-                    DropdownMenuItem(
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Dns,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp),
-                                tint = MaterialTheme.colorScheme.secondary
-                            )
-                        },
-                        text = {
-                            Column {
-                                Text(
-                                    text = node.tag,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = "${node.protocol.uppercase()} · ${node.server}:${node.serverPort}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.outline,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        },
-                        trailingIcon = if (isSelected) {
-                            { Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
-                        } else null,
-                        onClick = {
-                            onOutboundSelected(node.tag)
-                            expanded = false
+                    3 -> LogConfigTab(
+                        logConfig = config.log,
+                        onUpdateLog = { level, timestamp ->
+                            viewModel.updateLog(level, timestamp)
                         }
                     )
                 }
@@ -1670,4 +505,3 @@ fun OutboundSelectorDropdown(
         }
     }
 }
-

@@ -375,7 +375,8 @@ class SimpleConfigViewModel(
         routeAi: Boolean = _currentConfig.value.route.isRouteAi,
         aiOutbound: String = _currentConfig.value.route.aiOutbound,
         customGroups: List<CustomAppGroup> = _currentConfig.value.route.customGroups,
-        customDomainGroups: List<CustomDomainGroup> = _currentConfig.value.route.customDomainGroups
+        customDomainGroups: List<CustomDomainGroup> = _currentConfig.value.route.customDomainGroups,
+        ruleOrder: List<String>? = _currentConfig.value.route.rule_order
     ) {
         val sanitizedGroups = sanitizeCustomGroups(customGroups, routeGoogle, routeSocial, routeAi)
         val sanitizedDomainGroups = sanitizeCustomDomainGroups(customDomainGroups, routeGoogle, routeSocial, routeAi)
@@ -392,9 +393,28 @@ class SimpleConfigViewModel(
             route_ai = routeAi,
             ai_outbound = aiOutbound,
             custom_groups = sanitizedGroups,
-            custom_domain_groups = sanitizedDomainGroups
+            custom_domain_groups = sanitizedDomainGroups,
+            rule_order = ruleOrder
         )
         applyAndSave(_currentConfig.value.copy(route = updatedRoute))
+    }
+
+    fun reorderRules(newOrder: List<String>) {
+        updateRoute(ruleOrder = newOrder)
+    }
+
+    fun moveRule(fromIndex: Int, toIndex: Int) {
+        val currentOrder = _currentConfig.value.route.getEffectiveRuleOrder().toMutableList()
+        if (fromIndex in currentOrder.indices && toIndex in currentOrder.indices && fromIndex != toIndex) {
+            val item = currentOrder.removeAt(fromIndex)
+            currentOrder.add(toIndex, item)
+            updateRoute(ruleOrder = currentOrder)
+        }
+    }
+
+    fun resetRuleOrder() {
+        updateRoute(ruleOrder = null)
+        _message.value = "已恢复推荐规则匹配顺序"
     }
 
     fun addCustomGroup(name: String, outbound: String = "") {
@@ -407,7 +427,9 @@ class SimpleConfigViewModel(
             enabled = true
         )
         val updated = currentRoute.customGroups + newGroup
-        updateRoute(customGroups = updated)
+        val currentOrder = currentRoute.getEffectiveRuleOrder()
+        val newOrder = currentOrder + "app_group_${newGroup.id}"
+        updateRoute(customGroups = updated, ruleOrder = newOrder)
         _message.value = "已创建分组: ${newGroup.name}"
     }
 
@@ -439,7 +461,8 @@ class SimpleConfigViewModel(
         val currentRoute = _currentConfig.value.route
         val groupToDelete = currentRoute.customGroups.find { it.id == groupId }
         val updated = currentRoute.customGroups.filter { it.id != groupId }
-        updateRoute(customGroups = updated)
+        val newOrder = currentRoute.rule_order?.filter { it != "app_group_$groupId" }
+        updateRoute(customGroups = updated, ruleOrder = newOrder)
         _message.value = "已删除分组${if (groupToDelete != null) ": " + groupToDelete.name else ""}"
     }
 
@@ -465,7 +488,9 @@ class SimpleConfigViewModel(
             enabled = true
         )
         val updated = currentRoute.customDomainGroups + newGroup
-        updateRoute(customDomainGroups = updated)
+        val currentOrder = currentRoute.getEffectiveRuleOrder()
+        val newOrder = currentOrder + "domain_group_${newGroup.id}"
+        updateRoute(customDomainGroups = updated, ruleOrder = newOrder)
         _message.value = "已创建域名分组: ${newGroup.name}"
     }
 
@@ -497,7 +522,8 @@ class SimpleConfigViewModel(
         val currentRoute = _currentConfig.value.route
         val groupToDelete = currentRoute.customDomainGroups.find { it.id == groupId }
         val updated = currentRoute.customDomainGroups.filter { it.id != groupId }
-        updateRoute(customDomainGroups = updated)
+        val newOrder = currentRoute.rule_order?.filter { it != "domain_group_$groupId" }
+        updateRoute(customDomainGroups = updated, ruleOrder = newOrder)
         _message.value = "已删除域名分组${if (groupToDelete != null) ": " + groupToDelete.name else ""}"
     }
 

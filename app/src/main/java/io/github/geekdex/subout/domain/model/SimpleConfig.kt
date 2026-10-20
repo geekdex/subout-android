@@ -45,7 +45,10 @@ data class SimpleRouteConfig(
     val custom_groups: List<CustomAppGroup>? = emptyList(),
 
     // 自定义域名后缀分组 (一个域名仅属于一个分组，严格互斥、防冗余覆盖)
-    val custom_domain_groups: List<CustomDomainGroup>? = emptyList()
+    val custom_domain_groups: List<CustomDomainGroup>? = emptyList(),
+
+    // 路由规则执行顺序列表 (包含自定义分组、预设规则与系统安全规则的唯一标识符)
+    val rule_order: List<String>? = null
 ) {
     val isBlockQuic: Boolean get() = block_quic ?: true
     val isRouteGoogle: Boolean get() = route_google ?: true
@@ -56,6 +59,37 @@ data class SimpleRouteConfig(
     val aiOutbound: String get() = ai_outbound ?: ""
     val customGroups: List<CustomAppGroup> get() = custom_groups ?: emptyList()
     val customDomainGroups: List<CustomDomainGroup> get() = custom_domain_groups ?: emptyList()
+    val ruleOrder: List<String>? get() = rule_order
+
+    /**
+     * 获取标准默认的路由规则优先级顺序
+     */
+    fun getDefaultRuleOrder(): List<String> {
+        val list = mutableListOf<String>()
+        list.add("sys_block_quic")
+        list.add("sys_block_ads")
+        list.add("sys_bypass_lan")
+        customGroups.forEach { list.add("app_group_${it.id}") }
+        customDomainGroups.forEach { list.add("domain_group_${it.id}") }
+        list.add("preset_google")
+        list.add("preset_social")
+        list.add("preset_ai")
+        return list
+    }
+
+    /**
+     * 获取当前生效的规则执行顺序 (若保存过自定义顺序则优先采用，并自动合并新规则、剔除失效规则)
+     */
+    fun getEffectiveRuleOrder(): List<String> {
+        val defaultList = getDefaultRuleOrder()
+        val saved = rule_order
+        if (saved.isNullOrEmpty()) {
+            return defaultList
+        }
+        val validSaved = saved.filter { it in defaultList }
+        val remaining = defaultList.filter { it !in validSaved }
+        return validSaved + remaining
+    }
 }
 
 data class CustomAppGroup(

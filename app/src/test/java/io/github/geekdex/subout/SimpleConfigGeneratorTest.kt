@@ -715,4 +715,74 @@ class SimpleConfigGeneratorTest {
         assertTrue("group2 also contains shared node HK-01", g2Members.contains("HK-01"))
         assertTrue("group2 contains US-01", g2Members.contains("US-01"))
     }
+
+    @Test
+    fun testCustomRuleOrdering() {
+        val dummyNodes = listOf(
+            Node(id = 1, subscriptionId = 1, tag = "HK-01", protocol = "trojan", server = "hk.com", serverPort = 443, rawJson = "{}", enabled = true)
+        )
+
+        // Custom order putting AI first, then Google, then Ads
+        val customDomainGroup = CustomDomainGroup(
+            id = "group-dev",
+            name = "开发者域名",
+            outbound = "HK-01",
+            domain_suffixes = listOf("github.com"),
+            enabled = true
+        )
+
+        val cfg = SimpleConfig(
+            route = SimpleRouteConfig(
+                mode = "smart",
+                block_ads = true,
+                block_quic = true,
+                route_google = true,
+                route_ai = true,
+                custom_domain_groups = listOf(customDomainGroup),
+                rule_order = listOf(
+                    "domain_group_group-dev",
+                    "preset_ai",
+                    "sys_block_ads",
+                    "preset_google",
+                    "sys_block_quic"
+                )
+            )
+        )
+
+        val json = SimpleConfigGenerator.generate(cfg, dummyNodes)
+        val route = json.getAsJsonObject("route")
+        val rules = route.getAsJsonArray("rules")
+
+        // Filter out sniff & hijack-dns which are always at the top (indices 0, 1, 2)
+        val domainRuleIndex = rules.indexOfFirst {
+            val d = it.asJsonObject.getAsJsonArray("domain_suffix")
+            d != null && d.any { s -> s.asString == "github.com" }
+        }
+        val aiRuleIndex = rules.indexOfFirst {
+            val p = it.asJsonObject.getAsJsonArray("package_name")
+            p != null && p.any { s -> s.asString == "com.openai.chatgpt" }
+        }
+        val adsRuleIndex = rules.indexOfFirst {
+            it.asJsonObject.get("rule_set")?.asString == "geosite-category-ads-all"
+        }
+        val googleRuleIndex = rules.indexOfFirst {
+            val p = it.asJsonObject.getAsJsonArray("package_name")
+            p != null && p.any { s -> s.asString == "com.android.vending" }
+        }
+        val quicRuleIndex = rules.indexOfFirst {
+            it.asJsonObject.get("port")?.asInt == 443 && it.asJsonObject.get("network")?.asString == "udp"
+        }
+
+        assertTrue("domain rule must exist", domainRuleIndex != -1)
+        assertTrue("ai rule must exist", aiRuleIndex != -1)
+        assertTrue("ads rule must exist", adsRuleIndex != -1)
+        assertTrue("google rule must exist", googleRuleIndex != -1)
+        assertTrue("quic rule must exist", quicRuleIndex != -1)
+
+        // Verify the exact custom order: domain_group -> preset_ai -> ads -> google -> quic
+        assertTrue("Domain rule should precede AI rule", domainRuleIndex < aiRuleIndex)
+        assertTrue("AI rule should precede Ads rule", aiRuleIndex < adsRuleIndex)
+        assertTrue("Ads rule should precede Google rule", adsRuleIndex < googleRuleIndex)
+        assertTrue("Google rule should precede QUIC rule", googleRuleIndex < quicRuleIndex)
+    }
 }
