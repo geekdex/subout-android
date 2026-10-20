@@ -665,4 +665,54 @@ class SimpleConfigGeneratorTest {
         val rootExample = listOf(java.io.File("example-sing-box.json"), java.io.File("../example-sing-box.json")).firstOrNull { it.exists() }
         rootExample?.writeText(prettyJson)
     }
+
+    @Test
+    fun testSharedNodesAcrossGroups() {
+        val dummyNodes = listOf(
+            Node(1, 1, "HK-01", "trojan", "hk01.com", 443, "{}", true),
+            Node(2, 1, "HK-02", "trojan", "hk02.com", 443, "{}", true),
+            Node(3, 1, "US-01", "vless", "us01.com", 443, "{}", true)
+        )
+
+        // group1 has HK-01 and HK-02
+        val group1 = NodeGroup(
+            id = "group-1",
+            name = "香港专属组",
+            testUrl = PresetTestEndpoints.GOOGLE_GSTATIC.url,
+            testUrlName = PresetTestEndpoints.GOOGLE_GSTATIC.name,
+            nodeTagsJson = "[\"HK-01\",\"HK-02\"]",
+            enabled = true
+        )
+        // group2 ALSO includes HK-01 and US-01 (shared node HK-01)
+        val group2 = NodeGroup(
+            id = "group-2",
+            name = "全网优选组",
+            testUrl = PresetTestEndpoints.CLOUDFLARE_TRACE.url,
+            testUrlName = PresetTestEndpoints.CLOUDFLARE_TRACE.name,
+            nodeTagsJson = "[\"HK-01\",\"US-01\"]",
+            enabled = true
+        )
+
+        val cfg = SimpleConfig(
+            route = SimpleRouteConfig(
+                mode = "smart",
+                default_outbound = "全网优选组"
+            )
+        )
+
+        val json = SimpleConfigGenerator.generate(cfg, dummyNodes, listOf(group1, group2))
+        val outbounds = json.getAsJsonArray("outbounds")
+
+        val g1Outbound = outbounds.firstOrNull { it.asJsonObject.get("tag")?.asString == "香港专属组" }
+        assertNotNull(g1Outbound)
+        val g1Members = g1Outbound!!.asJsonObject.getAsJsonArray("outbounds").map { it.asString }
+        assertTrue("group1 contains HK-01", g1Members.contains("HK-01"))
+        assertTrue("group1 contains HK-02", g1Members.contains("HK-02"))
+
+        val g2Outbound = outbounds.firstOrNull { it.asJsonObject.get("tag")?.asString == "全网优选组" }
+        assertNotNull(g2Outbound)
+        val g2Members = g2Outbound!!.asJsonObject.getAsJsonArray("outbounds").map { it.asString }
+        assertTrue("group2 also contains shared node HK-01", g2Members.contains("HK-01"))
+        assertTrue("group2 contains US-01", g2Members.contains("US-01"))
+    }
 }

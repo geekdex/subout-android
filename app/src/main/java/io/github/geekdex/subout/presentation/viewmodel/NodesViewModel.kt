@@ -42,7 +42,8 @@ data class NodesUiState(
     val rawNodes: List<Node> = emptyList(),
     val filteredNodes: List<Node> = emptyList(),
     val nodeGroups: List<NodeGroup> = emptyList(),
-    val assignedNodeMap: Map<String, String> = emptyMap(), // nodeTag -> groupName
+    val nodeGroupsMap: Map<String, List<String>> = emptyMap(), // nodeTag -> list of groupNames
+    val assignedNodeMap: Map<String, String> = emptyMap(), // nodeTag -> groupName (comma-separated if multiple)
     val searchQuery: String = "",
     val selectedProtocol: String = "ALL",
     val sortOption: NodeSortOption = NodeSortOption.DEFAULT,
@@ -138,18 +139,20 @@ class NodesViewModel(
             )
         }
 
-        val assignedMap = mutableMapOf<String, String>()
+        val groupsMap = mutableMapOf<String, MutableList<String>>()
         for (g in groups) {
             for (t in g.nodeTags) {
-                assignedMap[t] = g.name
+                groupsMap.getOrPut(t) { mutableListOf() }.add(g.name)
             }
         }
+        val assignedMap = groupsMap.mapValues { it.value.joinToString(", ") }
 
         NodesUiState(
             selectedTab = tab,
             rawNodes = nodes,
             filteredNodes = sorted,
             nodeGroups = groups,
+            nodeGroupsMap = groupsMap,
             assignedNodeMap = assignedMap,
             searchQuery = filter.query,
             selectedProtocol = filter.protocol,
@@ -472,14 +475,9 @@ class NodesViewModel(
                 onResult(false, "已存在同名的单节点「$cleanName」，请更换组合名称")
                 return@launch
             }
-            if (nodeTags.isEmpty()) {
+            val distinctTags = nodeTags.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+            if (distinctTags.isEmpty()) {
                 onResult(false, "请至少选择一个节点加入该组合")
-                return@launch
-            }
-            val assigned = getAssignedNodeTags()
-            val conflict = nodeTags.firstOrNull { it in assigned }
-            if (conflict != null) {
-                onResult(false, "节点「$conflict」已属于组合「${assigned[conflict]}」，不能重复添加")
                 return@launch
             }
 
@@ -488,7 +486,7 @@ class NodesViewModel(
                 testUrl = testUrl.trim().ifBlank { "https://www.gstatic.com/generate_204" },
                 testUrlName = testUrlName.trim().ifBlank { "Google Gstatic" },
                 enabled = true
-            ).copyWithNodeTags(nodeTags)
+            ).copyWithNodeTags(distinctTags)
 
             nodeGroupRepository.insertGroup(group)
             syncExportWithGroups()
@@ -531,14 +529,9 @@ class NodesViewModel(
                 onResult(false, "已存在同名的单节点「$cleanName」，请使用其他组合名称")
                 return@launch
             }
-            if (nodeTags.isEmpty()) {
+            val distinctTags = nodeTags.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+            if (distinctTags.isEmpty()) {
                 onResult(false, "请至少选择一个节点加入该组合")
-                return@launch
-            }
-            val assigned = getAssignedNodeTags(excludeGroupId = groupId)
-            val conflict = nodeTags.firstOrNull { it in assigned }
-            if (conflict != null) {
-                onResult(false, "节点「$conflict」已属于组合「${assigned[conflict]}」，不能重复添加")
                 return@launch
             }
 
@@ -547,7 +540,7 @@ class NodesViewModel(
                 name = cleanName,
                 testUrl = testUrl.trim().ifBlank { "https://www.gstatic.com/generate_204" },
                 testUrlName = testUrlName.trim().ifBlank { "Google Gstatic" }
-            ).copyWithNodeTags(nodeTags)
+            ).copyWithNodeTags(distinctTags)
 
             nodeGroupRepository.updateGroup(updatedGroup)
 

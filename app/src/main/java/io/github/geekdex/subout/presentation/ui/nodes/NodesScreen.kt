@@ -4,6 +4,12 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -23,8 +29,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
@@ -39,6 +47,9 @@ import androidx.compose.material.icons.filled.Deselect
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
@@ -714,6 +725,7 @@ fun NodesScreen(
         CreateOrEditNodeGroupDialog(
             group = null,
             rawNodes = uiState.rawNodes,
+            nodeGroupsMap = uiState.nodeGroupsMap,
             assignedNodeMap = uiState.assignedNodeMap,
             onDismiss = { showCreateGroupDialog = false },
             onSave = { name, testUrl, testUrlName, selectedTags ->
@@ -731,6 +743,7 @@ fun NodesScreen(
         CreateOrEditNodeGroupDialog(
             group = group,
             rawNodes = uiState.rawNodes,
+            nodeGroupsMap = uiState.nodeGroupsMap,
             assignedNodeMap = uiState.assignedNodeMap,
             onDismiss = { editingGroup = null },
             onSave = { name, testUrl, testUrlName, selectedTags ->
@@ -955,6 +968,7 @@ fun NodesTabContent(
                 items(uiState.filteredNodes, key = { it.id }) { node ->
                     NodeItem(
                         node = node,
+                        assignedGroupNames = uiState.nodeGroupsMap[node.tag] ?: emptyList(),
                         assignedGroupName = uiState.assignedNodeMap[node.tag],
                         isTesting = uiState.testingNodeIds.contains(node.id),
                         isSelectionMode = uiState.isSelectionMode,
@@ -1278,7 +1292,8 @@ fun NodeGroupCard(
 fun CreateOrEditNodeGroupDialog(
     group: NodeGroup?,
     rawNodes: List<Node>,
-    assignedNodeMap: Map<String, String>,
+    nodeGroupsMap: Map<String, List<String>> = emptyMap(),
+    assignedNodeMap: Map<String, String> = emptyMap(),
     onDismiss: () -> Unit,
     onSave: (name: String, testUrl: String, testUrlName: String, selectedTags: List<String>) -> Unit
 ) {
@@ -1293,10 +1308,16 @@ fun CreateOrEditNodeGroupDialog(
             }
         )
     }
+    var showEndpointPicker by remember { mutableStateOf(false) }
     var selectedNodeTags by remember { mutableStateOf(group?.nodeTags?.toSet() ?: emptySet()) }
     var nodeSearchQuery by remember { mutableStateOf("") }
     var selectedProtocolFilter by remember { mutableStateOf("ALL") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    val availableProtocols = remember(rawNodes) {
+        val list = rawNodes.map { it.protocol.uppercase() }.distinct().sorted()
+        if (list.size > 1) listOf("ALL") + list else emptyList()
+    }
 
     // 筛选可见节点
     val filteredNodes = remember(rawNodes, nodeSearchQuery, selectedProtocolFilter) {
@@ -1312,126 +1333,118 @@ fun CreateOrEditNodeGroupDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .fillMaxWidth(0.95f)
+            .padding(vertical = 16.dp),
+        shape = RoundedCornerShape(22.dp),
+        icon = {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+                modifier = Modifier.size(44.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Hub,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+        },
         title = {
-            Text(
-                text = if (isEdit) "编辑节点组合" else "新建节点组合",
-                fontWeight = FontWeight.Bold
-            )
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = if (isEdit) "编辑节点组合" else "新建节点组合",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = if (isEdit) "调整组合名称、健康检测目标与成员节点" else "创建测速优选组合，自动优选最低延迟节点",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
         },
         text = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                errorMessage?.let { err ->
+                if (errorMessage != null) {
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f),
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
-                            text = err,
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(10.dp)
-                        )
-                    }
-                }
-
-                // 1. 组合名称
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it; errorMessage = null },
-                    label = { Text("组合名称 (Tag) *") },
-                    placeholder = { Text("例如：香港自动优选、US-Auto") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                HorizontalDivider()
-
-                // 2. 测速节点 (测试目标) - 快捷添加预设，先不支持手动添加
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Speed, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "测速节点 (URLTest Target) *",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    Text(
-                        text = "选择该组合进行健康检测与自动优选的测速节点（预设快捷选择）",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-
-                    Spacer(modifier = Modifier.height(2.dp))
-
-                    PresetTestEndpoints.PRESETS.forEach { endpoint ->
-                        val isSelected = selectedEndpoint.url == endpoint.url
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { selectedEndpoint = endpoint },
-                            shape = RoundedCornerShape(8.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                            )
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                RadioButton(
-                                    selected = isSelected,
-                                    onClick = { selectedEndpoint = endpoint }
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Text(
-                                            text = endpoint.name,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                        )
-                                        if (endpoint.description.isNotBlank()) {
-                                            Text(
-                                                text = endpoint.description,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
-                                        }
-                                    }
-                                    Text(
-                                        text = endpoint.url,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.outline,
-                                        fontFamily = FontFamily.Monospace,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = errorMessage ?: "",
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
                     }
                 }
 
-                HorizontalDivider()
+                // 1. 组合名称 (Tag)
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = {
+                        name = it
+                        errorMessage = null
+                    },
+                    label = { Text("组合名称 (Tag) *") },
+                    placeholder = { Text("例如：香港自动优选、US-Auto") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Label,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    },
+                    trailingIcon = {
+                        if (name.isNotEmpty()) {
+                            IconButton(onClick = { name = "" }) {
+                                Icon(
+                                    imageVector = Icons.Default.Clear,
+                                    contentDescription = "清空",
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    },
+                    supportingText = {
+                        Text("用于在分流规则及默认出站中引用的唯一策略标识")
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
 
-                // 3. 选择要加入的节点
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                // 2. 测速节点 (URLTest Target)
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1439,7 +1452,227 @@ fun CreateOrEditNodeGroupDialog(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Dns, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                            Icon(
+                                imageVector = Icons.Default.Speed,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "测速目标 (URLTest Target) *",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        TextButton(
+                            onClick = { showEndpointPicker = !showEndpointPicker },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = if (showEndpointPicker) "收起 ▴" else "更换预设 ▾",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+
+                    // 当前选中的测速节点摘要卡片
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showEndpointPicker = !showEndpointPicker },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        ),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Language,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = selectedEndpoint.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    if (selectedEndpoint.isRecommended) {
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                        ) {
+                                            Text(
+                                                text = "推荐",
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = selectedEndpoint.cleanDescription,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = selectedEndpoint.url,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline,
+                                    fontFamily = FontFamily.Monospace,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(
+                                imageVector = if (showEndpointPicker) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.outline,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+
+                    // 展开的测速节点预设列表 (排版优化：节点名称与备注独立分行，不再拥挤排版)
+                    AnimatedVisibility(
+                        visible = showEndpointPicker,
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically()
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "选择预设测速目标",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline,
+                                modifier = Modifier.padding(top = 2.dp)
+                            )
+
+                            PresetTestEndpoints.PRESETS.forEach { endpoint ->
+                                val isSelected = selectedEndpoint.url == endpoint.url
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            selectedEndpoint = endpoint
+                                            showEndpointPicker = false
+                                        },
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                                    ),
+                                    border = if (isSelected) {
+                                        BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+                                    } else {
+                                        BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                                    }
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 10.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        RadioButton(
+                                            selected = isSelected,
+                                            onClick = {
+                                                selectedEndpoint = endpoint
+                                                showEndpointPicker = false
+                                            }
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    text = endpoint.name,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                )
+                                                if (endpoint.isRecommended) {
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Surface(
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                                    ) {
+                                                        Text(
+                                                            text = "推荐",
+                                                            color = MaterialTheme.colorScheme.primary,
+                                                            fontSize = 10.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.height(3.dp))
+                                            Text(
+                                                text = endpoint.cleanDescription,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = endpoint.url,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.outline,
+                                                fontFamily = FontFamily.Monospace,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                // 3. 选择组合内的节点 (Node Selection)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Dns,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = "选择组合内的节点 *",
@@ -1447,99 +1680,170 @@ fun CreateOrEditNodeGroupDialog(
                                 fontWeight = FontWeight.Bold
                             )
                         }
-                        Text(
-                            text = "已选 ${selectedNodeTags.size} 个",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                        ) {
+                            Text(
+                                text = "已选 ${selectedNodeTags.size} / ${rawNodes.size}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
                     }
 
                     Text(
-                        text = "互斥说明：某个节点若已添加到其他组，则不可重复添加",
+                        text = "单节点支持同时加入多个不同组合；相同节点不可在同组中重复添加",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline
                     )
 
-                    // 快速搜索与协议过滤
+                    // 搜索框
                     OutlinedTextField(
                         value = nodeSearchQuery,
                         onValueChange = { nodeSearchQuery = it },
-                        placeholder = { Text("搜索待选节点...") },
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                        placeholder = { Text("搜索待选节点名称或地址...") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
                         trailingIcon = {
                             if (nodeSearchQuery.isNotEmpty()) {
                                 IconButton(onClick = { nodeSearchQuery = "" }) {
-                                    Icon(Icons.Default.Clear, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Icon(
+                                        imageVector = Icons.Default.Clear,
+                                        contentDescription = "清除搜索",
+                                        modifier = Modifier.size(18.dp)
+                                    )
                                 }
                             }
                         },
                         singleLine = true,
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    // 节点勾选列表
-                    if (filteredNodes.isEmpty()) {
+                    // 协议过滤标签
+                    if (availableProtocols.size > 1) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            availableProtocols.forEach { proto ->
+                                FilterChip(
+                                    selected = selectedProtocolFilter == proto,
+                                    onClick = { selectedProtocolFilter = proto },
+                                    label = { Text(proto, style = MaterialTheme.typography.labelSmall) },
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // 快捷批量操作
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text(
-                            text = "暂无匹配的节点",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline,
-                            modifier = Modifier.padding(vertical = 8.dp)
+                            text = "匹配 ${filteredNodes.size} 个节点",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline
                         )
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            TextButton(
+                                onClick = {
+                                    val toAdd = filteredNodes.map { it.tag }
+                                    selectedNodeTags = selectedNodeTags + toAdd
+                                    errorMessage = null
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text("全选当前", style = MaterialTheme.typography.labelMedium)
+                            }
+                            TextButton(
+                                onClick = {
+                                    selectedNodeTags = emptySet()
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text("清空", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                    }
+
+                    // 节点列表
+                    if (filteredNodes.isEmpty()) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 24.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = if (rawNodes.isEmpty()) "暂无可用节点，请先添加订阅或单节点" else "无匹配的节点",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+                        }
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             filteredNodes.forEach { node ->
-                                // 检查是否已被其他组合占用
-                                val assignedOtherGroup = assignedNodeMap[node.tag]?.let {
-                                    if (group != null) it != group.name else true
-                                } ?: false
-                                val otherGroupName = if (assignedOtherGroup) assignedNodeMap[node.tag] else null
                                 val isChecked = selectedNodeTags.contains(node.tag)
+                                val otherGroups = (nodeGroupsMap[node.tag] ?: emptyList()).filter { it != group?.name }
 
                                 Card(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .then(
-                                            if (!assignedOtherGroup) {
-                                                Modifier.clickable {
-                                                    selectedNodeTags = if (isChecked) {
-                                                        selectedNodeTags - node.tag
-                                                    } else {
-                                                        selectedNodeTags + node.tag
-                                                    }
-                                                    errorMessage = null
-                                                }
-                                            } else Modifier
-                                        ),
-                                    shape = RoundedCornerShape(8.dp),
+                                        .clickable {
+                                            selectedNodeTags = if (isChecked) {
+                                                selectedNodeTags - node.tag
+                                            } else {
+                                                selectedNodeTags + node.tag
+                                            }
+                                            errorMessage = null
+                                        },
+                                    shape = RoundedCornerShape(10.dp),
                                     colors = CardDefaults.cardColors(
-                                        containerColor = when {
-                                            assignedOtherGroup -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                                            isChecked -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-                                            else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
-                                        }
-                                    )
+                                        containerColor = if (isChecked) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    ),
+                                    border = if (isChecked) {
+                                        BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
+                                    } else {
+                                        BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                                    }
                                 ) {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Checkbox(
                                             checked = isChecked,
                                             onCheckedChange = { checked ->
-                                                if (!assignedOtherGroup) {
-                                                    selectedNodeTags = if (checked) {
-                                                        selectedNodeTags + node.tag
-                                                    } else {
-                                                        selectedNodeTags - node.tag
-                                                    }
-                                                    errorMessage = null
+                                                selectedNodeTags = if (checked) {
+                                                    selectedNodeTags + node.tag
+                                                } else {
+                                                    selectedNodeTags - node.tag
                                                 }
-                                            },
-                                            enabled = !assignedOtherGroup
+                                                errorMessage = null
+                                            }
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Column(modifier = Modifier.weight(1f)) {
@@ -1550,30 +1854,28 @@ fun CreateOrEditNodeGroupDialog(
                                                     fontWeight = FontWeight.SemiBold,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis,
-                                                    color = if (assignedOtherGroup) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface,
+                                                    color = MaterialTheme.colorScheme.onSurface,
                                                     modifier = Modifier.weight(1f, fill = false)
                                                 )
-                                                if (assignedOtherGroup && otherGroupName != null) {
+                                                if (otherGroups.isNotEmpty()) {
                                                     Spacer(modifier = Modifier.width(6.dp))
                                                     Surface(
                                                         shape = RoundedCornerShape(4.dp),
-                                                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f),
-                                                        modifier = Modifier.height(18.dp)
+                                                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
                                                     ) {
-                                                        Box(
-                                                            modifier = Modifier.padding(horizontal = 6.dp),
-                                                            contentAlignment = Alignment.Center
-                                                        ) {
-                                                            Text(
-                                                                text = "已属于: $otherGroupName (不可选)",
-                                                                color = MaterialTheme.colorScheme.error,
-                                                                fontSize = 9.sp,
-                                                                fontWeight = FontWeight.Bold
-                                                            )
-                                                        }
+                                                        Text(
+                                                            text = "已在: ${otherGroups.joinToString(",")}",
+                                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                            fontSize = 9.sp,
+                                                            fontWeight = FontWeight.Medium,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis,
+                                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                        )
                                                     }
                                                 }
                                             }
+                                            Spacer(modifier = Modifier.height(2.dp))
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 ProtocolBadge(protocol = node.protocol)
                                                 Spacer(modifier = Modifier.width(6.dp))
@@ -1582,8 +1884,18 @@ fun CreateOrEditNodeGroupDialog(
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = MaterialTheme.colorScheme.outline,
                                                     maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f, fill = false)
                                                 )
+                                                if (node.latency != null) {
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text(
+                                                        text = if (node.isTimeout) "超时" else "${node.latency}ms",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = if (node.isTimeout) MaterialTheme.colorScheme.error else Color(0xFF2E7D32)
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -1597,8 +1909,14 @@ fun CreateOrEditNodeGroupDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (name.trim().isBlank()) {
+                    val cleanName = name.trim()
+                    if (cleanName.isBlank()) {
                         errorMessage = "组合名称不能为空"
+                        return@Button
+                    }
+                    val systemOutbounds = listOf("AUTO-Test", "proxy", "direct", "block")
+                    if (systemOutbounds.any { it.equals(cleanName, ignoreCase = true) }) {
+                        errorMessage = "组合名称不能与系统策略同名 (如 AUTO-Test / proxy / direct / block)"
                         return@Button
                     }
                     if (selectedNodeTags.isEmpty()) {
@@ -1606,18 +1924,28 @@ fun CreateOrEditNodeGroupDialog(
                         return@Button
                     }
                     onSave(
-                        name.trim(),
+                        cleanName,
                         selectedEndpoint.url,
                         selectedEndpoint.name,
                         selectedNodeTags.toList()
                     )
-                }
+                },
+                shape = RoundedCornerShape(10.dp)
             ) {
-                Text(if (isEdit) "保存" else "创建")
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(if (isEdit) "保存修改" else "创建组合")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            OutlinedButton(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(10.dp)
+            ) {
                 Text("取消")
             }
         }
@@ -1630,6 +1958,7 @@ fun CreateOrEditNodeGroupDialog(
 @Composable
 fun NodeItem(
     node: Node,
+    assignedGroupNames: List<String> = emptyList(),
     assignedGroupName: String? = null,
     isTesting: Boolean,
     isSelectionMode: Boolean,
@@ -1704,22 +2033,32 @@ fun NodeItem(
                             }
                         }
                     }
-                    if (assignedGroupName != null) {
+                    val groupsToDisplay = assignedGroupNames.ifEmpty {
+                        assignedGroupName?.let { listOf(it) } ?: emptyList()
+                    }
+                    if (groupsToDisplay.isNotEmpty()) {
                         Spacer(modifier = Modifier.width(6.dp))
                         Surface(
                             shape = RoundedCornerShape(4.dp),
                             color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                            modifier = Modifier.height(16.dp)
+                            modifier = Modifier.height(18.dp)
                         ) {
                             Box(
-                                modifier = Modifier.padding(horizontal = 4.dp),
+                                modifier = Modifier.padding(horizontal = 5.dp),
                                 contentAlignment = Alignment.Center
                             ) {
+                                val groupText = when {
+                                    groupsToDisplay.size == 1 -> "组合: ${groupsToDisplay[0]}"
+                                    groupsToDisplay.size == 2 -> "组合: ${groupsToDisplay[0]}、${groupsToDisplay[1]}"
+                                    else -> "组合: ${groupsToDisplay[0]} 等 ${groupsToDisplay.size} 个"
+                                }
                                 Text(
-                                    text = "组合: $assignedGroupName",
+                                    text = groupText,
                                     color = MaterialTheme.colorScheme.primary,
                                     fontSize = 9.sp,
-                                    fontWeight = FontWeight.Medium
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
