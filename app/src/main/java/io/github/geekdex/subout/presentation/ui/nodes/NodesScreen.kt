@@ -81,7 +81,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -376,7 +376,7 @@ fun NodesScreen(
                 .padding(innerPadding)
         ) {
             // Tab 切换：节点 和 节点组合
-            TabRow(
+            PrimaryTabRow(
                 selectedTabIndex = uiState.selectedTab,
                 containerColor = MaterialTheme.colorScheme.surface,
                 contentColor = MaterialTheme.colorScheme.primary
@@ -1417,7 +1417,7 @@ fun CreateOrEditNodeGroupDialog(
                     placeholder = { Text("例如：香港自动优选、US-Auto") },
                     leadingIcon = {
                         Icon(
-                            imageVector = Icons.Default.Label,
+                            imageVector = Icons.Filled.Label,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)

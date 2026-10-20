@@ -6,7 +6,9 @@ import io.github.geekdex.subout.data.network.SubscriptionFetcher
 import io.github.geekdex.subout.data.repository.ConfigRepository
 import io.github.geekdex.subout.data.repository.NodeRepository
 import io.github.geekdex.subout.data.repository.SubscriptionRepository
+import io.github.geekdex.subout.data.repository.NodeGroupRepository
 import io.github.geekdex.subout.domain.generator.ConfigExporter
+import io.github.geekdex.subout.domain.service.DataSyncService
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
@@ -21,7 +23,7 @@ class SuboutApplication : Application() {
         NodeRepository(database.nodeDao())
     }
     val nodeGroupRepository by lazy {
-        io.github.geekdex.subout.data.repository.NodeGroupRepository(database.nodeGroupDao())
+        NodeGroupRepository(database.nodeGroupDao(), database.nodeDao())
     }
     val configRepository by lazy {
         ConfigRepository(this)
@@ -31,6 +33,9 @@ class SuboutApplication : Application() {
     }
     val configServer by lazy {
         io.github.geekdex.subout.domain.server.ConfigServer()
+    }
+    val dataSyncService by lazy {
+        DataSyncService(nodeRepository, nodeGroupRepository, configRepository)
     }
 
     private val appScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob())

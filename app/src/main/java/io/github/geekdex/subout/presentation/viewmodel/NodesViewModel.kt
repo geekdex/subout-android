@@ -327,7 +327,7 @@ class NodesViewModel(
             val nodesToDelete = nodeRepository.getNodesByIds(ids)
             val tags = nodesToDelete.map { it.tag }.toSet()
             val resetList = configRepository.resetOutboundIfUsed(tags)
-            nodeGroupRepository.removeNodesFromAllGroups(tags)
+            nodeGroupRepository.removeNodesFromAllManualGroups(tags)
             val count = nodeRepository.deleteNodesByIds(ids)
             exitSelectionMode()
             syncExportWithGroups()
@@ -356,7 +356,7 @@ class NodesViewModel(
             val timeoutNodes = nodeRepository.getTimeoutNodes()
             val tags = timeoutNodes.map { it.tag }.toSet()
             val resetList = configRepository.resetOutboundIfUsed(tags)
-            nodeGroupRepository.removeNodesFromAllGroups(tags)
+            nodeGroupRepository.removeNodesFromAllManualGroups(tags)
             val count = nodeRepository.deleteTimeoutNodes()
             syncExportWithGroups()
             if (count > 0) {
@@ -376,7 +376,7 @@ class NodesViewModel(
             val disabledNodes = nodeRepository.getDisabledNodes()
             val tags = disabledNodes.map { it.tag }.toSet()
             val resetList = configRepository.resetOutboundIfUsed(tags)
-            nodeGroupRepository.removeNodesFromAllGroups(tags)
+            nodeGroupRepository.removeNodesFromAllManualGroups(tags)
             val count = nodeRepository.deleteDisabledNodes()
             syncExportWithGroups()
             if (count > 0) {
@@ -394,7 +394,7 @@ class NodesViewModel(
     fun deleteNode(node: Node) {
         viewModelScope.launch {
             val resetList = configRepository.resetOutboundIfUsed(setOf(node.tag))
-            nodeGroupRepository.removeNodesFromAllGroups(setOf(node.tag))
+            nodeGroupRepository.removeNodesFromAllManualGroups(setOf(node.tag))
             nodeRepository.deleteNode(node)
             syncExportWithGroups()
             if (resetList.isNotEmpty()) {

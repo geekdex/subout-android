@@ -8,6 +8,8 @@ import io.github.geekdex.subout.data.db.entities.Subscription
 import io.github.geekdex.subout.data.repository.ConfigRepository
 import io.github.geekdex.subout.data.repository.NodeRepository
 import io.github.geekdex.subout.data.repository.SubscriptionRepository
+import io.github.geekdex.subout.data.repository.NodeGroupRepository
+import io.github.geekdex.subout.domain.service.DataSyncService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -24,7 +26,9 @@ data class SubscriptionsUiState(
 class SubscriptionsViewModel(
     private val subscriptionRepository: SubscriptionRepository,
     private val configRepository: ConfigRepository,
-    private val nodeRepository: NodeRepository
+    private val nodeRepository: NodeRepository,
+    private val nodeGroupRepository: NodeGroupRepository,
+    private val dataSyncService: DataSyncService
 ) : ViewModel() {
 
     private val _syncingSubIds = MutableStateFlow<Set<Long>>(emptySet())
@@ -77,6 +81,7 @@ class SubscriptionsViewModel(
                 val nodesToDelete = subscriptionRepository.getNodesBySubscriptionId(id)
                 val tags = nodesToDelete.map { it.tag }.toSet()
                 val resetList = configRepository.resetOutboundIfUsed(tags)
+                nodeGroupRepository.removeNodesFromAllManualGroups(tags)
                 subscriptionRepository.deleteSubscription(id)
                 if (resetList.isNotEmpty()) {
                     _message.value = "已删除订阅，涉及的规则【${resetList.joinToString("、")}】已重置为直连 (direct)"
@@ -95,19 +100,30 @@ class SubscriptionsViewModel(
         }
     }
 
+    /**
+     * 同步单个订阅
+     * 
+     * 流程：
+     * 1. 从网络拉取新节点
+     * 2. 调用 DataSyncService 进行完整的数据一致性清理
+     *    ├─ 清理配置中失效的出站引用
+     *    ├─ 清理手动分组中失效的节点
+     *    └─ 刷新所有动态分组（重新计算匹配节点）
+     */
     fun syncSubscription(id: Long) {
         viewModelScope.launch {
             _syncingSubIds.value = _syncingSubIds.value + id
             try {
                 val res = subscriptionRepository.syncSubscription(id)
                 if (res.isSuccess) {
-                    val allNodes = nodeRepository.getAllNodesSync()
-                    val availableTags = allNodes.filter { it.enabled }.map { it.tag }.toSet()
-                    val resetList = configRepository.validateAndCleanMissingNodes(availableTags)
-                    if (resetList.isNotEmpty()) {
-                        _message.value = "同步完成，获取到 ${res.getOrNull()} 个节点。已失效节点【${resetList.joinToString("、")}】已自动重置为 direct"
+                    // 调用数据同步服务进行全面的数据一致性检查和修复
+                    val syncResult = dataSyncService.syncSubscriptionsCompleted()
+
+                    val nodeCount = res.getOrNull() ?: 0
+                    if (syncResult.configResetList.isNotEmpty()) {
+                        _message.value = "同步完成，获取到 $nodeCount 个节点。已失效节点【${syncResult.configResetList.joinToString("、")}】已自动重置为 direct"
                     } else {
-                        _message.value = "同步完成，获取到 ${res.getOrNull()} 个节点"
+                        _message.value = "同步完成，获取到 $nodeCount 个节点"
                     }
                 } else {
                     _message.value = "同步失败: ${res.exceptionOrNull()?.message}"
@@ -132,7 +148,9 @@ class SubscriptionsViewModel(
                 return SubscriptionsViewModel(
                     app.subscriptionRepository,
                     app.configRepository,
-                    app.nodeRepository
+                    app.nodeRepository,
+                    app.nodeGroupRepository,
+                    app.dataSyncService
                 ) as T
             }
         }

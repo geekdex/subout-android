@@ -1,13 +1,18 @@
 package io.github.geekdex.subout.data.repository
 
+import io.github.geekdex.subout.data.db.dao.NodeDao
 import io.github.geekdex.subout.data.db.dao.NodeGroupDao
+import io.github.geekdex.subout.data.db.entities.Node
 import io.github.geekdex.subout.data.db.entities.NodeGroup
+import io.github.geekdex.subout.data.db.entities.NodeGroupType
+import io.github.geekdex.subout.data.db.entities.DynamicMatchRule
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 
 class NodeGroupRepository(
-    private val nodeGroupDao: NodeGroupDao
+    private val nodeGroupDao: NodeGroupDao,
+    private val nodeDao: NodeDao
 ) {
     val nodeGroups: Flow<List<NodeGroup>> = nodeGroupDao.getAll()
 
@@ -39,15 +44,127 @@ class NodeGroupRepository(
         nodeGroupDao.updateEnabled(id, enabled)
     }
 
-    suspend fun removeNodesFromAllGroups(nodeTags: Set<String>) = withContext(Dispatchers.IO) {
+    /**
+     * 当节点被删除时，从所有手动选择组中移除这些节点
+     * 仅适用于 MANUAL 类型的分组
+     */
+    suspend fun removeNodesFromAllManualGroups(nodeTags: Set<String>) = withContext(Dispatchers.IO) {
         if (nodeTags.isEmpty()) return@withContext
         val allGroups = nodeGroupDao.getAllSync()
         for (group in allGroups) {
-            val currentTags = group.nodeTags
-            val filtered = currentTags.filter { it !in nodeTags }
-            if (filtered.size != currentTags.size) {
-                nodeGroupDao.update(group.copyWithNodeTags(filtered))
+            if (group.groupType == NodeGroupType.MANUAL) {
+                val currentTags = group.nodeTags
+                val filtered = currentTags.filter { it !in nodeTags }
+                if (filtered.size != currentTags.size) {
+                    nodeGroupDao.update(group.copyWithNodeTags(filtered))
+                }
             }
         }
+    }
+
+    /**
+     * 重新计算所有动态匹配组的节点列表
+     * 应该在订阅更新、节点变化时调用
+     */
+    suspend fun refreshDynamicGroupsNodes() = withContext(Dispatchers.IO) {
+        val allGroups = nodeGroupDao.getAllSync()
+        val allNodes = nodeDao.getAllSync()
+
+        for (group in allGroups) {
+            if (group.groupType == NodeGroupType.DYNAMIC) {
+                val rule = group.dynamicRule ?: continue
+                val matchedTags = calculateDynamicGroupNodes(rule, allNodes)
+                val updatedGroup = group.copyWithNodeTags(matchedTags)
+                nodeGroupDao.update(updatedGroup)
+            }
+        }
+    }
+
+    /**
+     * 根据动态规则计算匹配的节点 tag 列表
+     */
+    private suspend fun calculateDynamicGroupNodes(
+        rule: DynamicMatchRule,
+        allNodes: List<Node>
+    ): List<String> = withContext(Dispatchers.IO) {
+        val filtered = allNodes.filter { node ->
+            // 1. 检查订阅过滤
+            if (rule.subscriptionIds.isNotEmpty()) {
+                if (node.subscriptionId == null || node.subscriptionId !in rule.subscriptionIds) {
+                    return@filter false
+                }
+            }
+
+            // 2. 检查关键词匹配
+            rule.matches(node.tag)
+        }
+        filtered.map { it.tag }
+    }
+
+    /**
+     * 创建一个手动选择组
+     */
+    suspend fun createManualGroup(name: String, nodeTags: List<String> = emptyList()): NodeGroup {
+        val group = NodeGroup(
+            name = name,
+            type = NodeGroupType.MANUAL.name,
+            nodeTagsJson = com.google.gson.Gson().toJson(nodeTags)
+        )
+        insertGroup(group)
+        return group
+    }
+
+    /**
+     * 创建一个动态匹配组
+     */
+    suspend fun createDynamicGroup(
+        name: String,
+        subscriptionIds: List<Long> = emptyList(),
+        includeKeywords: List<String> = emptyList(),
+        excludeKeywords: List<String> = emptyList()
+    ): NodeGroup {
+        val rule = DynamicMatchRule(
+            subscriptionIds = subscriptionIds,
+            includeKeywords = includeKeywords.filter { it.isNotBlank() },
+            excludeKeywords = excludeKeywords.filter { it.isNotBlank() }
+        )
+        val group = NodeGroup(
+            name = name,
+            type = NodeGroupType.DYNAMIC.name,
+            dynamicRuleJson = DynamicMatchRule.toJson(rule)
+        )
+        insertGroup(group)
+        // 立即计算初始匹配节点
+        val allNodes = nodeDao.getAllSync()
+        val matchedTags = calculateDynamicGroupNodes(rule, allNodes)
+        val updatedGroup = group.copyWithNodeTags(matchedTags)
+        updateGroup(updatedGroup)
+        return updatedGroup
+    }
+
+    /**
+     * 更新动态匹配规则
+     */
+    suspend fun updateDynamicRule(
+        groupId: String,
+        subscriptionIds: List<Long>,
+        includeKeywords: List<String>,
+        excludeKeywords: List<String>
+    ) = withContext(Dispatchers.IO) {
+        val group = nodeGroupDao.getById(groupId) ?: return@withContext
+        if (group.groupType != NodeGroupType.DYNAMIC) return@withContext
+
+        val rule = DynamicMatchRule(
+            subscriptionIds = subscriptionIds,
+            includeKeywords = includeKeywords.filter { it.isNotBlank() },
+            excludeKeywords = excludeKeywords.filter { it.isNotBlank() }
+        )
+        val updatedGroup = group.copyWithDynamicRule(rule)
+        
+        // 立即重新计算节点列表
+        val allNodes = nodeDao.getAllSync()
+        val matchedTags = calculateDynamicGroupNodes(rule, allNodes)
+        val finalGroup = updatedGroup.copyWithNodeTags(matchedTags)
+        nodeGroupDao.update(finalGroup)
     }
 }

@@ -10,9 +10,9 @@ import androidx.lifecycle.viewModelScope
 import io.github.geekdex.subout.SuboutApplication
 import io.github.geekdex.subout.data.repository.ConfigRepository
 import io.github.geekdex.subout.data.repository.NodeRepository
+import io.github.geekdex.subout.data.repository.NodeGroupRepository
 import io.github.geekdex.subout.data.db.entities.Node
 import io.github.geekdex.subout.data.db.entities.NodeGroup
-import io.github.geekdex.subout.data.repository.NodeGroupRepository
 import io.github.geekdex.subout.domain.model.AppRulePresets
 import io.github.geekdex.subout.domain.model.CustomAppGroup
 import io.github.geekdex.subout.domain.model.CustomDomainGroup
@@ -647,6 +647,56 @@ class SimpleConfigViewModel(
 
     fun clearMessage() {
         _message.value = null
+    }
+
+    // ========== 节点组合管理（支持动态分组）==========
+
+    /**
+     * 创建一个新的动态匹配分组
+     */
+    fun createDynamicGroup(
+        name: String,
+        subscriptionIds: List<Long> = emptyList(),
+        includeKeywords: List<String> = emptyList(),
+        excludeKeywords: List<String> = emptyList()
+    ) {
+        viewModelScope.launch {
+            try {
+                val group = nodeGroupRepository.createDynamicGroup(
+                    name = name,
+                    subscriptionIds = subscriptionIds,
+                    includeKeywords = includeKeywords,
+                    excludeKeywords = excludeKeywords
+                )
+                _message.value = "已创建动态分组: ${group.name}"
+            } catch (e: Exception) {
+                _message.value = "创建分组失败: ${e.message}"
+            }
+        }
+    }
+
+    /**
+     * 更新动态分组的匹配规则
+     */
+    fun updateDynamicGroupRule(
+        groupId: String,
+        subscriptionIds: List<Long>,
+        includeKeywords: List<String>,
+        excludeKeywords: List<String>
+    ) {
+        viewModelScope.launch {
+            try {
+                nodeGroupRepository.updateDynamicRule(
+                    groupId = groupId,
+                    subscriptionIds = subscriptionIds,
+                    includeKeywords = includeKeywords,
+                    excludeKeywords = excludeKeywords
+                )
+                _message.value = "已更新分组规则"
+            } catch (e: Exception) {
+                _message.value = "更新规则失败: ${e.message}"
+            }
+        }
     }
 
     companion object {
