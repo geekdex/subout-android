@@ -31,6 +31,7 @@ class SubscriptionRepository(
     suspend fun deleteSubscription(id: Long) = withContext(Dispatchers.IO) {
         nodeDao.deleteBySubscriptionId(id)
         subscriptionDao.deleteById(id)
+        nodeDao.deleteOrphanedNodes()
     }
 
     suspend fun getNodesBySubscriptionId(subId: Long): List<Node> = withContext(Dispatchers.IO) {
@@ -39,6 +40,7 @@ class SubscriptionRepository(
 
     suspend fun setSubscriptionEnabled(id: Long, enabled: Boolean) = withContext(Dispatchers.IO) {
         subscriptionDao.updateEnabled(id, enabled)
+        nodeDao.updateEnabledBySubscriptionId(id, enabled)
     }
 
     suspend fun syncSubscription(id: Long): Result<Int> = withContext(Dispatchers.IO) {
@@ -48,6 +50,7 @@ class SubscriptionRepository(
         val now = System.currentTimeMillis()
         if (fetchResult.isSuccess) {
             val (parsedNodes, skipped) = fetchResult.getOrThrow()
+            val currentSub = subscriptionDao.getById(id) ?: return@withContext Result.failure(Exception("订阅源已被删除"))
             nodeDao.deleteBySubscriptionId(id)
 
             val dbNodes = parsedNodes.map { proxyNode ->
@@ -58,7 +61,7 @@ class SubscriptionRepository(
                     server = proxyNode.server,
                     serverPort = proxyNode.serverPort,
                     rawJson = proxyNode.rawJson,
-                    enabled = true
+                    enabled = currentSub.enabled
                 )
             }
             nodeDao.insertAll(dbNodes)

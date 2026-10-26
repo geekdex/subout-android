@@ -785,4 +785,109 @@ class SimpleConfigGeneratorTest {
         assertTrue("Ads rule should precede Google rule", adsRuleIndex < googleRuleIndex)
         assertTrue("Google rule should precede QUIC rule", googleRuleIndex < quicRuleIndex)
     }
+
+    @Test
+    fun testDuplicateNodeTagsAreDisambiguated() {
+        val cfg = SimpleConfig()
+        val duplicateNodes = listOf(
+            Node(
+                id = 1,
+                subscriptionId = 1,
+                tag = "CF电信优选1",
+                protocol = "vless",
+                server = "1.1.1.1",
+                serverPort = 443,
+                rawJson = """{"type":"vless","tag":"CF电信优选1","server":"1.1.1.1","server_port":443,"uuid":"u1"}""",
+                enabled = true
+            ),
+            Node(
+                id = 2,
+                subscriptionId = 2,
+                tag = "CF电信优选1",
+                protocol = "vless",
+                server = "2.2.2.2",
+                serverPort = 443,
+                rawJson = """{"type":"vless","tag":"CF电信优选1","server":"2.2.2.2","server_port":443,"uuid":"u2"}""",
+                enabled = true
+            ),
+            Node(
+                id = 3,
+                subscriptionId = 2,
+                tag = "CF电信优选1",
+                protocol = "vless",
+                server = "3.3.3.3",
+                serverPort = 443,
+                rawJson = """{"type":"vless","tag":"CF电信优选1","server":"3.3.3.3","server_port":443,"uuid":"u3"}""",
+                enabled = true
+            )
+        )
+
+        val json = SimpleConfigGenerator.generate(cfg, duplicateNodes)
+        val outbounds = json.getAsJsonArray("outbounds")
+        assertNotNull(outbounds)
+
+        // All outbound tags must be completely unique
+        val allTags = outbounds.map { it.asJsonObject.get("tag").asString }
+        val uniqueTags = allTags.toSet()
+        assertEquals("All outbound tags in sing-box config must be unique without duplicate", allTags.size, uniqueTags.size)
+
+        // The node tags should be disambiguated as CF电信优选1, CF电信优选1-2, CF电信优选1-3
+        assertTrue(allTags.contains("CF电信优选1"))
+        assertTrue(allTags.contains("CF电信优选1-2"))
+        assertTrue(allTags.contains("CF电信优选1-3"))
+
+        // urltest AUTO-Test should contain the disambiguated tags without duplicates
+        val autoTest = outbounds.first { it.asJsonObject.get("tag").asString == "AUTO-Test" }.asJsonObject
+        val autoTestOutbounds = autoTest.getAsJsonArray("outbounds").map { it.asString }
+        assertEquals(autoTestOutbounds.size, autoTestOutbounds.toSet().size)
+        assertTrue(autoTestOutbounds.contains("CF电信优选1"))
+        assertTrue(autoTestOutbounds.contains("CF电信优选1-2"))
+        assertTrue(autoTestOutbounds.contains("CF电信优选1-3"))
+
+        // proxy selector should also contain unique disambiguated tags
+        val proxySelector = outbounds.first { it.asJsonObject.get("tag").asString == "proxy" }.asJsonObject
+        val proxyOutbounds = proxySelector.getAsJsonArray("outbounds").map { it.asString }
+        assertEquals(proxyOutbounds.size, proxyOutbounds.toSet().size)
+    }
+
+    @Test
+    fun testNodeTagCollidingWithReservedSystemTag() {
+        val cfg = SimpleConfig()
+        val nodesWithReservedTags = listOf(
+            Node(
+                id = 1,
+                subscriptionId = 1,
+                tag = "direct",
+                protocol = "vless",
+                server = "1.1.1.1",
+                serverPort = 443,
+                rawJson = """{"type":"vless","tag":"direct","server":"1.1.1.1","server_port":443,"uuid":"u1"}""",
+                enabled = true
+            ),
+            Node(
+                id = 2,
+                subscriptionId = 1,
+                tag = "proxy",
+                protocol = "vless",
+                server = "2.2.2.2",
+                serverPort = 443,
+                rawJson = """{"type":"vless","tag":"proxy","server":"2.2.2.2","server_port":443,"uuid":"u2"}""",
+                enabled = true
+            )
+        )
+
+        val json = SimpleConfigGenerator.generate(cfg, nodesWithReservedTags)
+        val outbounds = json.getAsJsonArray("outbounds")
+        val allTags = outbounds.map { it.asJsonObject.get("tag").asString }
+        val uniqueTags = allTags.toSet()
+
+        // No duplicate tags!
+        assertEquals("No duplicate tags when node tag collides with reserved tag", allTags.size, uniqueTags.size)
+        // Reserved tags still exist
+        assertTrue(allTags.contains("direct"))
+        assertTrue(allTags.contains("proxy"))
+        // Colliding node tags were disambiguated
+        assertTrue(allTags.contains("direct-2"))
+        assertTrue(allTags.contains("proxy-2"))
+    }
 }

@@ -70,4 +70,12 @@ class NodeRepository(
     suspend fun getDisabledNodes(): List<Node> = withContext(Dispatchers.IO) {
         nodeDao.getDisabledNodesSync()
     }
+
+    suspend fun deleteOrphanedNodes(): Int = withContext(Dispatchers.IO) {
+        nodeDao.deleteOrphanedNodes()
+    }
+
+    suspend fun setSubscriptionNodesEnabled(subId: Long, enabled: Boolean): Int = withContext(Dispatchers.IO) {
+        nodeDao.updateEnabledBySubscriptionId(subId, enabled)
+    }
 }

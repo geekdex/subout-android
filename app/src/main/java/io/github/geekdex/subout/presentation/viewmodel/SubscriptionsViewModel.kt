@@ -79,8 +79,8 @@ class SubscriptionsViewModel(
         viewModelScope.launch {
             try {
                 subscriptionRepository.deleteSubscription(id)
-                // 订阅删除后，全面同步清理静态组、刷新动态组、校验并重置配置引用
-                val syncResult = dataSyncService.syncSubscriptionsCompleted()
+                // 订阅删除后，全面同步数据至配置：清理组、校验并重置配置引用、即时重新生成 sing-box 配置
+                val syncResult = dataSyncService.syncDataToConfig()
                 if (syncResult.configResetList.isNotEmpty()) {
                     _message.value = "已删除订阅，涉及的规则【${syncResult.configResetList.joinToString("、")}】已重置为直连 (direct)"
                 } else {
@@ -94,19 +94,28 @@ class SubscriptionsViewModel(
 
     fun toggleEnabled(id: Long, enabled: Boolean) {
         viewModelScope.launch {
-            subscriptionRepository.setSubscriptionEnabled(id, enabled)
+            try {
+                subscriptionRepository.setSubscriptionEnabled(id, enabled)
+                val syncResult = dataSyncService.syncDataToConfig()
+                val action = if (enabled) "启用" else "禁用"
+                if (syncResult.configResetList.isNotEmpty()) {
+                    _message.value = "已${action}订阅，涉及的规则【${syncResult.configResetList.joinToString("、")}】已重置为 direct"
+                } else {
+                    _message.value = "已${action}订阅"
+                }
+            } catch (e: Exception) {
+                _message.value = "更新状态失败: ${e.message}"
+            }
         }
     }
 
     /**
-     * 同步单个订阅
-     * 
-     * 流程：
-     * 1. 从网络拉取新节点
-     * 2. 调用 DataSyncService 进行完整的数据一致性清理
-     *    ├─ 清理配置中失效的出站引用
-     *    ├─ 清理手动分组中失效的节点
-     *    └─ 刷新所有动态分组（重新计算匹配节点）
+     * 同步单个订阅：
+     * 1. 对应订阅旧节点全量清空，新节点完整替换入库
+     * 2. 调用 DataSyncService 完成全链路数据同步至配置：
+     *    - 刷新动态与静态分组
+     *    - 校验配置，若原规则指向的节点在新数据中仍有同名项则保留，无同名项则重置为 direct
+     *    - 立即重新生成 sing-box.json 并更新服务缓存与导出文件
      */
     fun syncSubscription(id: Long) {
         viewModelScope.launch {
@@ -114,12 +123,10 @@ class SubscriptionsViewModel(
             try {
                 val res = subscriptionRepository.syncSubscription(id)
                 if (res.isSuccess) {
-                    // 调用数据同步服务进行全面的数据一致性检查和修复
-                    val syncResult = dataSyncService.syncSubscriptionsCompleted()
-
+                    val syncResult = dataSyncService.syncDataToConfig()
                     val nodeCount = res.getOrNull() ?: 0
                     if (syncResult.configResetList.isNotEmpty()) {
-                        _message.value = "同步完成，获取到 $nodeCount 个节点。已失效节点【${syncResult.configResetList.joinToString("、")}】已自动重置为 direct"
+                        _message.value = "同步完成，获取到 $nodeCount 个节点。已失效规则【${syncResult.configResetList.joinToString("、")}】已自动重置为 direct"
                     } else {
                         _message.value = "同步完成，获取到 $nodeCount 个节点"
                     }
@@ -130,6 +137,37 @@ class SubscriptionsViewModel(
                 _message.value = "同步异常: ${e.message}"
             } finally {
                 _syncingSubIds.value = _syncingSubIds.value - id
+            }
+        }
+    }
+
+    /**
+     * 同步所有已启用的订阅源：
+     * 所有订阅原本的节点数据全部清空并由新数据替换，并全量同步到配置中
+     */
+    fun syncAllSubscriptions() {
+        viewModelScope.launch {
+            val subs = uiState.value.subscriptions.filter { it.enabled }
+            if (subs.isEmpty()) {
+                _message.value = "暂无可同步的已启用订阅源"
+                return@launch
+            }
+            _syncingSubIds.value = subs.map { it.id }.toSet()
+            try {
+                val results = subscriptionRepository.syncAll()
+                val syncResult = dataSyncService.syncDataToConfig()
+                val successCount = results.values.count { it.isSuccess }
+                val totalNodes = results.values.sumOf { it.getOrNull() ?: 0 }
+                val baseMsg = "全量同步完成: 成功 $successCount/${subs.size} 个订阅，共 $totalNodes 个节点"
+                if (syncResult.configResetList.isNotEmpty()) {
+                    _message.value = "$baseMsg。已失效规则【${syncResult.configResetList.joinToString("、")}】已自动重置为 direct"
+                } else {
+                    _message.value = baseMsg
+                }
+            } catch (e: Exception) {
+                _message.value = "全量同步异常: ${e.message}"
+            } finally {
+                _syncingSubIds.value = emptySet()
             }
         }
     }

@@ -35,7 +35,13 @@ class SuboutApplication : Application() {
         io.github.geekdex.subout.domain.server.ConfigServer()
     }
     val dataSyncService by lazy {
-        DataSyncService(nodeRepository, nodeGroupRepository, configRepository)
+        DataSyncService(
+            nodeRepository,
+            nodeGroupRepository,
+            configRepository,
+            configServer,
+            configExporter
+        )
     }
 
     private val appScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
@@ -43,6 +49,16 @@ class SuboutApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+
+        // 启动时自动执行全量数据与配置一致性同步、清理孤立节点并更新导出文件
+        appScope.launch {
+            try {
+                dataSyncService.syncDataToConfig()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
         configServer.contentProvider = {
             val config = configRepository.configState.value
             val enabledNodes = nodeRepository.getEnabledNodes()

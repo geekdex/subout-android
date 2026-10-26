@@ -20,6 +20,7 @@ import io.github.geekdex.subout.domain.model.DomainUtils
 import io.github.geekdex.subout.domain.model.InstalledAppInfo
 import io.github.geekdex.subout.domain.model.SimpleConfig
 import io.github.geekdex.subout.domain.model.SimpleRouteConfig
+import io.github.geekdex.subout.domain.service.DataSyncService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -48,7 +49,8 @@ class SimpleConfigViewModel(
     private val configRepository: ConfigRepository,
     private val nodeRepository: NodeRepository,
     private val nodeGroupRepository: NodeGroupRepository,
-    private val context: Context? = null
+    private val context: Context? = null,
+    private val dataSyncService: DataSyncService? = null
 ) : ViewModel() {
 
     private val _currentConfig = MutableStateFlow(configRepository.configState.value)
@@ -328,6 +330,9 @@ class SimpleConfigViewModel(
     private fun applyAndSave(newConfig: SimpleConfig) {
         _currentConfig.value = newConfig
         configRepository.saveConfig(newConfig)
+        viewModelScope.launch {
+            dataSyncService?.syncDataToConfig()
+        }
     }
 
     fun updateDns(
@@ -668,6 +673,7 @@ class SimpleConfigViewModel(
                     includeKeywords = includeKeywords,
                     excludeKeywords = excludeKeywords
                 )
+                dataSyncService?.syncDataToConfig()
                 _message.value = "已创建动态分组: ${group.name}"
             } catch (e: Exception) {
                 _message.value = "创建分组失败: ${e.message}"
@@ -692,6 +698,7 @@ class SimpleConfigViewModel(
                     includeKeywords = includeKeywords,
                     excludeKeywords = excludeKeywords
                 )
+                dataSyncService?.syncDataToConfig()
                 _message.value = "已更新分组规则"
             } catch (e: Exception) {
                 _message.value = "更新规则失败: ${e.message}"
@@ -704,7 +711,13 @@ class SimpleConfigViewModel(
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 val app = SuboutApplication.instance
-                return SimpleConfigViewModel(app.configRepository, app.nodeRepository, app.nodeGroupRepository, app.applicationContext) as T
+                return SimpleConfigViewModel(
+                    app.configRepository,
+                    app.nodeRepository,
+                    app.nodeGroupRepository,
+                    app.applicationContext,
+                    app.dataSyncService
+                ) as T
             }
         }
     }

@@ -3,6 +3,7 @@ package io.github.geekdex.subout.data.repository
 import android.content.Context
 import com.google.gson.Gson
 import io.github.geekdex.subout.domain.model.SimpleConfig
+import io.github.geekdex.subout.domain.model.validateAndCleanOutbounds
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -190,68 +191,13 @@ class ConfigRepository(context: Context) {
         availableNodeTags: Set<String>,
         availableGroupNames: Set<String> = emptySet()
     ): List<String> {
-        val standardOutbounds = setOf("", "AUTO-Test", "proxy", "direct", "block")
-        val allValidOutbounds = standardOutbounds + availableNodeTags + availableGroupNames
-        val currentConfig = _configState.value
-        val route = currentConfig.route
-        val resetList = mutableListOf<String>()
-
-        var newGoogle = route.google_outbound
-        if (route.google_outbound !in allValidOutbounds) {
-            newGoogle = "direct"
-            resetList.add("Google 全家桶出站")
-        }
-
-        var newSocial = route.social_outbound
-        if (route.social_outbound !in allValidOutbounds) {
-            newSocial = "direct"
-            resetList.add("常用海外社交出站")
-        }
-
-        var newAi = route.ai_outbound
-        if (route.ai_outbound !in allValidOutbounds) {
-            newAi = "direct"
-            resetList.add("热门 AI 应用出站")
-        }
-
-        var newDefault = route.default_outbound
-        if (route.default_outbound !in allValidOutbounds) {
-            newDefault = "direct"
-            resetList.add("默认出站")
-        }
-
-        val newGroups = route.customGroups.map { group ->
-            if (group.outbound !in allValidOutbounds) {
-                resetList.add("应用分组「${group.name}」")
-                group.copy(outbound = "direct")
-            } else {
-                group
-            }
-        }
-
-        val newDomainGroups = route.customDomainGroups.map { group ->
-            if (group.outbound !in allValidOutbounds) {
-                resetList.add("域名分组「${group.name}」")
-                group.copy(outbound = "direct")
-            } else {
-                group
-            }
-        }
-
+        val (updatedConfig, resetList) = _configState.value.validateAndCleanOutbounds(
+            availableNodeTags = availableNodeTags,
+            availableGroupNames = availableGroupNames
+        )
         if (resetList.isNotEmpty()) {
-            val updatedConfig = currentConfig.copy(
-                route = route.copy(
-                    google_outbound = newGoogle,
-                    social_outbound = newSocial,
-                    ai_outbound = newAi,
-                    default_outbound = newDefault,
-                    custom_groups = newGroups,
-                    custom_domain_groups = newDomainGroups
-                )
-            )
             saveConfig(updatedConfig)
         }
-
         return resetList
     }
 

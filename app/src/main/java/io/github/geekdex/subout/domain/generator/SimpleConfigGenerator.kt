@@ -44,16 +44,29 @@ object SimpleConfigGenerator {
         // 1. Log
         root.add("log", buildLogSection(config.log))
 
-        // Collect enabled nodes and prepare node outbounds
+        // Collect enabled nodes and prepare node outbounds with tag deduplication and reserved tag protection
+        val usedTags = mutableSetOf("direct", "block", "proxy", "AUTO-Test")
         val proxyNodeTags = mutableListOf<String>()
         val nodeOutbounds = JsonArray()
 
         for (node in enabledNodes) {
             if (node.enabled) {
-                proxyNodeTags.add(node.tag)
+                var candidateTag = node.tag.trim()
+                if (candidateTag.isEmpty()) {
+                    candidateTag = if (node.server.isNotEmpty()) "${node.server}:${node.serverPort}" else "node"
+                }
+                var counter = 2
+                var uniqueTag = candidateTag
+                while (uniqueTag in usedTags) {
+                    uniqueTag = "$candidateTag-$counter"
+                    counter++
+                }
+                usedTags.add(uniqueTag)
+                proxyNodeTags.add(uniqueTag)
+
                 try {
                     val nodeVal = gson.fromJson(node.rawJson, JsonObject::class.java)
-                    nodeVal.addProperty("tag", node.tag)
+                    nodeVal.addProperty("tag", uniqueTag)
                     sanitizeOutboundValue(nodeVal)
                     nodeOutbounds.add(nodeVal)
                 } catch (_: Exception) {
@@ -64,32 +77,53 @@ object SimpleConfigGenerator {
         val hasNodes = proxyNodeTags.isNotEmpty()
 
         // Prepare valid node groups (enabled and contains at least one enabled node)
+        // Disambiguate group tags against usedTags and each other
         val validGroups = enabledGroups.filter { group ->
             group.enabled && group.nodeTags.any { tag -> tag in proxyNodeTags }
         }
-        val groupTags = validGroups.map { it.name }
+        val groupTagMap = mutableMapOf<String, String>() // group.id -> uniqueGroupTag
+        val groupTags = mutableListOf<String>()
+        for (group in validGroups) {
+            var candidateGroupTag = group.name.trim()
+            if (candidateGroupTag.isEmpty()) {
+                candidateGroupTag = "group"
+            }
+            var counter = 2
+            var uniqueGroupTag = candidateGroupTag
+            while (uniqueGroupTag in usedTags) {
+                uniqueGroupTag = "$candidateGroupTag-$counter"
+                counter++
+            }
+            usedTags.add(uniqueGroupTag)
+            groupTagMap[group.id] = uniqueGroupTag
+            groupTags.add(uniqueGroupTag)
+        }
 
         // Determine target proxy
+        val resolvedDefaultGroup = validGroups.firstOrNull {
+            (groupTagMap[it.id] ?: it.name) == config.route.default_outbound || it.name == config.route.default_outbound
+        }?.let { groupTagMap[it.id] ?: it.name }
+
         val targetProxy = when {
             config.route.default_outbound == "direct" || !hasNodes -> "direct"
             config.route.default_outbound == "proxy" -> "proxy"
             config.route.default_outbound == "AUTO-Test" -> "AUTO-Test"
-            groupTags.contains(config.route.default_outbound) -> config.route.default_outbound
+            resolvedDefaultGroup != null -> resolvedDefaultGroup
             proxyNodeTags.contains(config.route.default_outbound) -> config.route.default_outbound
             else -> "AUTO-Test"
         }
 
         // 2. DNS
-        root.add("dns", buildDnsSection(config.dns, config.route, hasNodes, targetProxy, proxyNodeTags, groupTags))
+        root.add("dns", buildDnsSection(config.dns, config.route, hasNodes, targetProxy, proxyNodeTags, groupTags, groupTagMap))
 
         // 3. Inbounds
         root.add("inbounds", buildInboundsSection(config.inbound))
 
         // 4. Outbounds
-        root.add("outbounds", buildOutboundsSection(config.route, proxyNodeTags, nodeOutbounds, hasNodes, validGroups))
+        root.add("outbounds", buildOutboundsSection(config.route, proxyNodeTags, nodeOutbounds, hasNodes, validGroups, groupTagMap))
 
         // 5. Route
-        root.add("route", buildRouteSection(config.route, proxyNodeTags, groupTags, hasNodes, targetProxy))
+        root.add("route", buildRouteSection(config.route, proxyNodeTags, groupTags, hasNodes, targetProxy, groupTagMap))
 
         // 6. HTTP Clients (sing-box 1.14+ standard for remote rule-sets and downloads)
         root.add("http_clients", buildHttpClientsSection(hasNodes, targetProxy))
@@ -132,7 +166,8 @@ object SimpleConfigGenerator {
         hasNodes: Boolean,
         targetProxy: String,
         proxyNodeTags: List<String>,
-        groupTags: List<String>
+        groupTags: List<String>,
+        groupTagMap: Map<String, String> = emptyMap()
     ): JsonObject {
         val isFakeIpMode = dnsConfig.mode == "preset_fakeip" ||
                 dnsConfig.mode == "fakeip" ||
@@ -205,7 +240,7 @@ object SimpleConfigGenerator {
         // 1. Custom App Groups DNS rules
         val enabledCustomGroups = routeConfig.customGroups.filter { it.isEnabled && it.packageNames.isNotEmpty() }
         for (group in enabledCustomGroups) {
-            val groupTarget = resolveOutbound(group.outboundTag, proxyNodeTags, groupTags, hasNodes, targetProxy)
+            val groupTarget = resolveOutbound(group.outboundTag, proxyNodeTags, groupTags, hasNodes, targetProxy, groupTagMap)
             val dnsServer = getDnsServerForTarget(groupTarget, isFakeIpMode, hasNodes)
             val pkgArr = JsonArray()
             group.packageNames.forEach { pkgArr.add(it) }
@@ -218,7 +253,7 @@ object SimpleConfigGenerator {
         // 1.1 Custom Domain Groups DNS rules
         val enabledCustomDomainGroups = routeConfig.customDomainGroups.filter { it.isEnabled && it.domainSuffixes.isNotEmpty() }
         for (group in enabledCustomDomainGroups) {
-            val groupTarget = resolveOutbound(group.outboundTag, proxyNodeTags, groupTags, hasNodes, targetProxy)
+            val groupTarget = resolveOutbound(group.outboundTag, proxyNodeTags, groupTags, hasNodes, targetProxy, groupTagMap)
             val dnsServer = getDnsServerForTarget(groupTarget, isFakeIpMode, hasNodes)
             val domainArr = JsonArray()
             group.domainSuffixes.forEach { domainArr.add(it) }
@@ -230,7 +265,7 @@ object SimpleConfigGenerator {
 
         // 2. Google Preset DNS rules
         if (routeConfig.isRouteGoogle) {
-            val googleTarget = resolveOutbound(routeConfig.googleOutbound, proxyNodeTags, groupTags, hasNodes, targetProxy)
+            val googleTarget = resolveOutbound(routeConfig.googleOutbound, proxyNodeTags, groupTags, hasNodes, targetProxy, groupTagMap)
             val googleDns = getDnsServerForTarget(googleTarget, isFakeIpMode, hasNodes)
             rules.add(JsonObject().apply {
                 add("package_name", AppRulePresets.google.apps.toPackagesJsonArray())
@@ -250,7 +285,7 @@ object SimpleConfigGenerator {
 
         // 3. Social Preset DNS rules
         if (routeConfig.isRouteSocial) {
-            val socialTarget = resolveOutbound(routeConfig.socialOutbound, proxyNodeTags, groupTags, hasNodes, targetProxy)
+            val socialTarget = resolveOutbound(routeConfig.socialOutbound, proxyNodeTags, groupTags, hasNodes, targetProxy, groupTagMap)
             val socialDns = getDnsServerForTarget(socialTarget, isFakeIpMode, hasNodes)
             rules.add(JsonObject().apply {
                 add("package_name", AppRulePresets.social.apps.toPackagesJsonArray())
@@ -270,7 +305,7 @@ object SimpleConfigGenerator {
 
         // 4. AI Preset DNS rules
         if (routeConfig.isRouteAi) {
-            val aiTarget = resolveOutbound(routeConfig.aiOutbound, proxyNodeTags, groupTags, hasNodes, targetProxy)
+            val aiTarget = resolveOutbound(routeConfig.aiOutbound, proxyNodeTags, groupTags, hasNodes, targetProxy, groupTagMap)
             val aiDns = getDnsServerForTarget(aiTarget, isFakeIpMode, hasNodes)
             rules.add(JsonObject().apply {
                 add("package_name", AppRulePresets.ai.apps.toPackagesJsonArray())
@@ -434,7 +469,8 @@ object SimpleConfigGenerator {
         proxyNodeTags: List<String>,
         nodeOutbounds: JsonArray,
         hasNodes: Boolean,
-        validGroups: List<NodeGroup>
+        validGroups: List<NodeGroup>,
+        groupTagMap: Map<String, String> = emptyMap()
     ): JsonArray {
         val outbounds = JsonArray()
 
@@ -459,7 +495,7 @@ object SimpleConfigGenerator {
         if (hasNodes) {
             // Add custom node groups first, then individual nodes
             for (group in validGroups) {
-                selectorOutbounds.add(group.name)
+                selectorOutbounds.add(groupTagMap[group.id] ?: group.name)
             }
             for (tag in proxyNodeTags) {
                 selectorOutbounds.add(tag)
@@ -472,8 +508,9 @@ object SimpleConfigGenerator {
             add("outbounds", selectorOutbounds)
             if (routeConfig.default_outbound == "direct") {
                 addProperty("default", "direct")
-            } else if (validGroups.any { it.name == routeConfig.default_outbound }) {
-                addProperty("default", routeConfig.default_outbound)
+            } else if (validGroups.any { (groupTagMap[it.id] ?: it.name) == routeConfig.default_outbound || it.name == routeConfig.default_outbound }) {
+                val g = validGroups.first { (groupTagMap[it.id] ?: it.name) == routeConfig.default_outbound || it.name == routeConfig.default_outbound }
+                addProperty("default", groupTagMap[g.id] ?: g.name)
             } else if (proxyNodeTags.contains(routeConfig.default_outbound)) {
                 addProperty("default", routeConfig.default_outbound)
             } else if (hasNodes && routeConfig.default_outbound == "AUTO-Test") {
@@ -502,15 +539,16 @@ object SimpleConfigGenerator {
         // 4.1 Custom urltest Node Groups
         for (group in validGroups) {
             val groupNodes = JsonArray()
+            val addedGroupNodeTags = mutableSetOf<String>()
             for (tag in group.nodeTags) {
-                if (tag in proxyNodeTags) {
+                if (tag in proxyNodeTags && addedGroupNodeTags.add(tag)) {
                     groupNodes.add(tag)
                 }
             }
             if (groupNodes.size() > 0) {
                 outbounds.add(JsonObject().apply {
                     addProperty("type", "urltest")
-                    addProperty("tag", group.name)
+                    addProperty("tag", groupTagMap[group.id] ?: group.name)
                     addProperty("url", group.testUrl.ifBlank { "https://www.gstatic.com/generate_204" })
                     addProperty("interval", "3m")
                     addProperty("tolerance", 50)
@@ -532,7 +570,8 @@ object SimpleConfigGenerator {
         proxyNodeTags: List<String>,
         groupTags: List<String>,
         hasNodes: Boolean,
-        targetProxy: String
+        targetProxy: String,
+        groupTagMap: Map<String, String> = emptyMap()
     ): JsonObject {
         val rules = JsonArray()
 
@@ -596,7 +635,7 @@ object SimpleConfigGenerator {
                     val groupId = ruleKey.removePrefix("app_group_")
                     val group = routeConfig.customGroups.find { it.id == groupId }
                     if (group != null && group.isEnabled && group.packageNames.isNotEmpty()) {
-                        val groupTarget = resolveOutbound(group.outboundTag, proxyNodeTags, groupTags, hasNodes, targetProxy)
+                        val groupTarget = resolveOutbound(group.outboundTag, proxyNodeTags, groupTags, hasNodes, targetProxy, groupTagMap)
                         val pkgArr = JsonArray()
                         group.packageNames.forEach { pkgArr.add(it) }
                         addRouteRule(groupTarget) {
@@ -608,7 +647,7 @@ object SimpleConfigGenerator {
                     val groupId = ruleKey.removePrefix("domain_group_")
                     val group = routeConfig.customDomainGroups.find { it.id == groupId }
                     if (group != null && group.isEnabled && group.domainSuffixes.isNotEmpty()) {
-                        val groupTarget = resolveOutbound(group.outboundTag, proxyNodeTags, groupTags, hasNodes, targetProxy)
+                        val groupTarget = resolveOutbound(group.outboundTag, proxyNodeTags, groupTags, hasNodes, targetProxy, groupTagMap)
                         val domainArr = JsonArray()
                         group.domainSuffixes.forEach { domainArr.add(it) }
                         addRouteRule(groupTarget) {
@@ -618,7 +657,7 @@ object SimpleConfigGenerator {
                 }
                 ruleKey == "preset_google" -> {
                     if (routeConfig.isRouteGoogle) {
-                        val googleTarget = resolveOutbound(routeConfig.googleOutbound, proxyNodeTags, groupTags, hasNodes, targetProxy)
+                        val googleTarget = resolveOutbound(routeConfig.googleOutbound, proxyNodeTags, groupTags, hasNodes, targetProxy, groupTagMap)
                         addRouteRule(googleTarget) {
                             it.add("package_name", AppRulePresets.google.apps.toPackagesJsonArray())
                         }
@@ -634,7 +673,7 @@ object SimpleConfigGenerator {
                 }
                 ruleKey == "preset_social" -> {
                     if (routeConfig.isRouteSocial) {
-                        val socialTarget = resolveOutbound(routeConfig.socialOutbound, proxyNodeTags, groupTags, hasNodes, targetProxy)
+                        val socialTarget = resolveOutbound(routeConfig.socialOutbound, proxyNodeTags, groupTags, hasNodes, targetProxy, groupTagMap)
                         addRouteRule(socialTarget) {
                             it.add("package_name", AppRulePresets.social.apps.toPackagesJsonArray())
                         }
@@ -650,7 +689,7 @@ object SimpleConfigGenerator {
                 }
                 ruleKey == "preset_ai" -> {
                     if (routeConfig.isRouteAi) {
-                        val aiTarget = resolveOutbound(routeConfig.aiOutbound, proxyNodeTags, groupTags, hasNodes, targetProxy)
+                        val aiTarget = resolveOutbound(routeConfig.aiOutbound, proxyNodeTags, groupTags, hasNodes, targetProxy, groupTagMap)
                         addRouteRule(aiTarget) {
                             it.add("package_name", AppRulePresets.ai.apps.toPackagesJsonArray())
                         }
@@ -768,14 +807,16 @@ object SimpleConfigGenerator {
         proxyNodeTags: List<String>,
         groupTags: List<String>,
         hasNodes: Boolean,
-        targetProxy: String
+        targetProxy: String,
+        groupTagMap: Map<String, String> = emptyMap()
     ): String {
+        val mappedOutbound = groupTagMap[customOutbound] ?: customOutbound
         return when {
-            customOutbound.isNotBlank() && (
-                proxyNodeTags.contains(customOutbound) ||
-                groupTags.contains(customOutbound) ||
-                listOf("proxy", "AUTO-Test", "direct", "block").contains(customOutbound)
-            ) -> customOutbound
+            mappedOutbound.isNotBlank() && (
+                proxyNodeTags.contains(mappedOutbound) ||
+                groupTags.contains(mappedOutbound) ||
+                listOf("proxy", "AUTO-Test", "direct", "block").contains(mappedOutbound)
+            ) -> mappedOutbound
             hasNodes -> targetProxy
             else -> "direct"
         }

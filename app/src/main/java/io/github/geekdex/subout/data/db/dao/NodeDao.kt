@@ -41,6 +41,12 @@ interface NodeDao {
     @Query("DELETE FROM nodes WHERE subscriptionId = :subId")
     suspend fun deleteBySubscriptionId(subId: Long)
 
+    @Query("DELETE FROM nodes WHERE subscriptionId IS NOT NULL AND subscriptionId NOT IN (SELECT id FROM subscriptions)")
+    suspend fun deleteOrphanedNodes(): Int
+
+    @Query("UPDATE nodes SET enabled = :enabled WHERE subscriptionId = :subId")
+    suspend fun updateEnabledBySubscriptionId(subId: Long, enabled: Boolean): Int
+
     @Query("UPDATE nodes SET latency = :latency, testTime = :testTime WHERE id = :id")
     suspend fun updateLatency(id: Long, latency: Int?, testTime: Long)
 

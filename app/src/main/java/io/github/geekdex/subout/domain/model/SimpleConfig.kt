@@ -122,3 +122,72 @@ data class SimpleConfig(
     val inbound: SimpleInboundConfig = SimpleInboundConfig(),
     val route: SimpleRouteConfig = SimpleRouteConfig()
 )
+
+/**
+ * 校验并清理 SimpleConfig 中失效的出站规则：
+ * 若引用的节点在新节点或节点组中存在同名项，则予以保留；
+ * 若引用的节点或节点组已下线或不存在，则自动重置为 "direct"。
+ * 
+ * @return 包含更新后的 SimpleConfig 和被重置的规则描述列表
+ */
+fun SimpleConfig.validateAndCleanOutbounds(
+    availableNodeTags: Set<String>,
+    availableGroupNames: Set<String> = emptySet()
+): Pair<SimpleConfig, List<String>> {
+    val standardOutbounds = setOf("", "AUTO-Test", "proxy", "direct", "block")
+    val allValidOutbounds = standardOutbounds + availableNodeTags + availableGroupNames
+    val resetList = mutableListOf<String>()
+
+    var newGoogle = route.google_outbound
+    if (!route.google_outbound.isNullOrEmpty() && route.google_outbound !in allValidOutbounds) {
+        newGoogle = "direct"
+        resetList.add("Google 全家桶出站")
+    }
+
+    var newSocial = route.social_outbound
+    if (!route.social_outbound.isNullOrEmpty() && route.social_outbound !in allValidOutbounds) {
+        newSocial = "direct"
+        resetList.add("常用海外社交出站")
+    }
+
+    var newAi = route.ai_outbound
+    if (!route.ai_outbound.isNullOrEmpty() && route.ai_outbound !in allValidOutbounds) {
+        newAi = "direct"
+        resetList.add("热门 AI 应用出站")
+    }
+
+    var newDefault = route.default_outbound
+    if (route.default_outbound !in allValidOutbounds) {
+        newDefault = "direct"
+        resetList.add("默认出站")
+    }
+
+    val newGroups = route.customGroups.map { group ->
+        if (!group.outbound.isNullOrEmpty() && group.outbound !in allValidOutbounds) {
+            resetList.add("应用分组「${group.name}」")
+            group.copy(outbound = "direct")
+        } else {
+            group
+        }
+    }
+
+    val newDomainGroups = route.customDomainGroups.map { group ->
+        if (!group.outbound.isNullOrEmpty() && group.outbound !in allValidOutbounds) {
+            resetList.add("域名分组「${group.name}」")
+            group.copy(outbound = "direct")
+        } else {
+            group
+        }
+    }
+
+    val updatedRoute = route.copy(
+        google_outbound = newGoogle,
+        social_outbound = newSocial,
+        ai_outbound = newAi,
+        default_outbound = newDefault,
+        custom_groups = newGroups,
+        custom_domain_groups = newDomainGroups
+    )
+
+    return Pair(this.copy(route = updatedRoute), resetList)
+}

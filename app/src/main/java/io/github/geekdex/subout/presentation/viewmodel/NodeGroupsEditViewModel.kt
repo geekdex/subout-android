@@ -16,6 +16,7 @@ import io.github.geekdex.subout.domain.model.DynamicMatchRuleUI
 import io.github.geekdex.subout.domain.model.NodeGroupDetailUiState
 import io.github.geekdex.subout.domain.model.NodeGroupFormData
 import io.github.geekdex.subout.domain.model.NodeGroupTypeUI
+import io.github.geekdex.subout.domain.service.DataSyncService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,7 +28,8 @@ class NodeGroupsEditViewModel(
     private val nodeGroupRepository: NodeGroupRepository,
     private val nodeRepository: NodeRepository,
     private val subscriptionRepository: SubscriptionRepository,
-    private val configRepository: ConfigRepository
+    private val configRepository: ConfigRepository,
+    private val dataSyncService: DataSyncService
 ) : ViewModel() {
 
     private val _detailState = MutableStateFlow<NodeGroupDetailUiState>(NodeGroupDetailUiState())
@@ -348,6 +350,14 @@ class NodeGroupsEditViewModel(
                         }
                     }
                 }
+
+                val syncResult = dataSyncService.syncDataToConfig()
+                if (syncResult.configResetList.isNotEmpty()) {
+                    val currentMsg = _detailState.value.message ?: ""
+                    _detailState.value = _detailState.value.copy(
+                        message = "$currentMsg，涉及的【${syncResult.configResetList.joinToString("、")}】已自动重置为直连 (direct)"
+                    )
+                }
             } catch (e: Exception) {
                 _detailState.value = _detailState.value.copy(
                     message = "保存失败: ${e.message}"
@@ -366,14 +376,11 @@ class NodeGroupsEditViewModel(
             try {
                 val group = nodeGroupRepository.getGroupById(groupId)
                 if (group != null) {
-                    // 检查配置中是否有引用这个分组（通过分组名称）
-                    val resetList = configRepository.resetOutboundIfUsedByGroupName(setOf(group.name))
-
                     nodeGroupRepository.deleteGroupById(groupId)
-
-                    if (resetList.isNotEmpty()) {
+                    val syncResult = dataSyncService.syncDataToConfig()
+                    if (syncResult.configResetList.isNotEmpty()) {
                         _detailState.value = _detailState.value.copy(
-                            message = "已删除分组【${group.name}】，涉及的配置【${resetList.joinToString("、")}】已重置为 direct"
+                            message = "已删除分组【${group.name}】，涉及的【${syncResult.configResetList.joinToString("、")}】已自动重置为直连 (direct)"
                         )
                     } else {
                         _detailState.value = _detailState.value.copy(
@@ -402,7 +409,8 @@ class NodeGroupsEditViewModel(
                     app.nodeGroupRepository,
                     app.nodeRepository,
                     app.subscriptionRepository,
-                    app.configRepository
+                    app.configRepository,
+                    app.dataSyncService
                 ) as T
             }
         }

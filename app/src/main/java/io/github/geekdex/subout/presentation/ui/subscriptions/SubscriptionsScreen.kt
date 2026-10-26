@@ -96,6 +96,24 @@ fun SubscriptionsScreen(
                         )
                     }
                 },
+                actions = {
+                    if (uiState.subscriptions.any { it.enabled }) {
+                        val isAnySyncing = uiState.syncingSubIds.isNotEmpty()
+                        IconButton(
+                            onClick = { viewModel.syncAllSubscriptions() },
+                            enabled = !isAnySyncing
+                        ) {
+                            if (isAnySyncing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(Icons.Default.Refresh, contentDescription = "全部更新")
+                            }
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.onSurface

@@ -10,6 +10,7 @@ class SubscriptionFetcherTest {
 
     private val fetcher = SubscriptionFetcher()
 
+    @org.junit.Ignore("External live endpoint may expire")
     @Test
     fun testFeiniaoLiveSubscription() = runBlocking {
         val url = "https://388583885.459245.xyz/api/v1/client/subscribe?token=117f1d288bc0c0e7a970af1196018af4"

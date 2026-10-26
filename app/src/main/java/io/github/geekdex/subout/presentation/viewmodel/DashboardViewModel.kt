@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.geekdex.subout.SuboutApplication
 import io.github.geekdex.subout.data.repository.NodeRepository
 import io.github.geekdex.subout.data.repository.SubscriptionRepository
+import io.github.geekdex.subout.domain.service.DataSyncService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -25,7 +26,8 @@ data class DashboardUiState(
 
 class DashboardViewModel(
     private val subscriptionRepository: SubscriptionRepository,
-    private val nodeRepository: NodeRepository
+    private val nodeRepository: NodeRepository,
+    private val dataSyncService: DataSyncService
 ) : ViewModel() {
 
     private val _isSyncing = MutableStateFlow(false)
@@ -58,9 +60,15 @@ class DashboardViewModel(
             _syncMessage.value = null
             try {
                 val results = subscriptionRepository.syncAll()
+                val syncResult = dataSyncService.syncDataToConfig()
                 val successCount = results.values.count { it.isSuccess }
                 val totalNodes = results.values.sumOf { it.getOrNull() ?: 0 }
-                _syncMessage.value = "同步完成: 成功 $successCount 个订阅，共 $totalNodes 个节点"
+                val baseMsg = "同步完成: 成功 $successCount 个订阅，共 $totalNodes 个节点"
+                if (syncResult.configResetList.isNotEmpty()) {
+                    _syncMessage.value = "$baseMsg。已失效规则【${syncResult.configResetList.joinToString("、")}】已自动重置为直连"
+                } else {
+                    _syncMessage.value = baseMsg
+                }
             } catch (e: Exception) {
                 _syncMessage.value = "同步异常: ${e.message}"
             } finally {
@@ -78,7 +86,11 @@ class DashboardViewModel(
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 val app = SuboutApplication.instance
-                return DashboardViewModel(app.subscriptionRepository, app.nodeRepository) as T
+                return DashboardViewModel(
+                    app.subscriptionRepository,
+                    app.nodeRepository,
+                    app.dataSyncService
+                ) as T
             }
         }
     }

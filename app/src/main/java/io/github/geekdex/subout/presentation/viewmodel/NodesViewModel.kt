@@ -15,6 +15,7 @@ import io.github.geekdex.subout.domain.generator.ConfigExporter
 import io.github.geekdex.subout.domain.generator.SimpleConfigGenerator
 import io.github.geekdex.subout.domain.model.ManualNodeConfig
 import io.github.geekdex.subout.domain.server.ConfigServer
+import io.github.geekdex.subout.domain.service.DataSyncService
 import io.github.geekdex.subout.domain.tester.NodeTester
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -64,7 +65,8 @@ class NodesViewModel(
     private val configRepository: ConfigRepository,
     private val configExporter: ConfigExporter,
     private val configServer: ConfigServer,
-    private val subscriptionRepository: SubscriptionRepository
+    private val subscriptionRepository: SubscriptionRepository,
+    private val dataSyncService: DataSyncService
 ) : ViewModel() {
 
     private val _selectedTab = MutableStateFlow(0)
@@ -210,13 +212,23 @@ class NodesViewModel(
     fun toggleNodeEnabled(id: Long, enabled: Boolean) {
         viewModelScope.launch {
             nodeRepository.setNodeEnabled(id, enabled)
+            val syncResult = dataSyncService.syncDataToConfig()
+            if (syncResult.configResetList.isNotEmpty()) {
+                _message.value = "已更新节点状态，涉及的规则【${syncResult.configResetList.joinToString("、")}】已重置为直连"
+            }
         }
     }
 
     fun setAllEnabled(enabled: Boolean) {
         viewModelScope.launch {
             nodeRepository.setAllNodesEnabled(enabled)
-            _message.value = if (enabled) "已启用全部节点" else "已禁用全部节点"
+            val syncResult = dataSyncService.syncDataToConfig()
+            val action = if (enabled) "启用" else "禁用"
+            if (syncResult.configResetList.isNotEmpty()) {
+                _message.value = "已${action}全部节点，涉及的【${syncResult.configResetList.joinToString("、")}】已重置为直连"
+            } else {
+                _message.value = "已${action}全部节点"
+            }
         }
     }
 
@@ -329,28 +341,12 @@ class NodesViewModel(
     }
 
     private suspend fun syncExportWithGroups() {
-        val currentConfig = configRepository.configState.value
-        val currentNodes = nodeRepository.getEnabledNodes()
-        val currentGroups = nodeGroupRepository.getAllGroupsSync().filter { it.enabled }
-        val jsonStr = SimpleConfigGenerator.generatePrettyString(currentConfig, currentNodes, currentGroups)
-        configServer.updateContent(jsonStr)
-        configExporter.exportToFile(jsonStr)
+        dataSyncService.syncDataToConfig()
     }
 
     private suspend fun onNodesRemoved(removedTags: Set<String>): List<String> {
-        if (removedTags.isEmpty()) return emptyList()
-        // 1. 从所有静态组合中移除被删除的节点
-        nodeGroupRepository.removeNodesFromAllManualGroups(removedTags)
-        // 2. 刷新所有动态组合（重新匹配存活节点）
-        nodeGroupRepository.refreshDynamicGroupsNodes()
-        // 3. 检查是否有节点组变空
-        val allGroups = nodeGroupRepository.getAllGroupsSync()
-        val emptyGroupNames = allGroups.filter { it.enabled && it.nodeTags.isEmpty() }.map { it.name }.toSet()
-        // 4. 重置被删除单节点以及变空节点组的出站引用
-        val tagsToReset = removedTags + emptyGroupNames
-        val resetList = configRepository.resetOutboundIfUsed(tagsToReset)
-        syncExportWithGroups()
-        return resetList
+        val syncResult = dataSyncService.syncDataToConfig()
+        return syncResult.configResetList
     }
 
     fun deleteSelectedNodes() {
@@ -377,8 +373,13 @@ class NodesViewModel(
 
         viewModelScope.launch {
             val count = nodeRepository.setNodesEnabled(ids, enabled)
+            val syncResult = dataSyncService.syncDataToConfig()
             val action = if (enabled) "启用" else "禁用"
-            _message.value = "已${action} $count 个节点"
+            if (syncResult.configResetList.isNotEmpty()) {
+                _message.value = "已${action} $count 个节点，涉及的【${syncResult.configResetList.joinToString("、")}】已重置为直连"
+            } else {
+                _message.value = "已${action} $count 个节点"
+            }
             exitSelectionMode()
         }
     }
@@ -446,6 +447,7 @@ class NodesViewModel(
                 }
                 val node = config.toNode()
                 nodeRepository.insertNode(node)
+                dataSyncService.syncDataToConfig()
                 _message.value = "已成功添加节点「${config.tag}」"
                 onResult(true, "添加成功")
             } catch (e: Exception) {
@@ -540,8 +542,12 @@ class NodesViewModel(
                 )
             }
             
-            syncExportWithGroups()
-            _message.value = "已创建节点组合「$cleanName」"
+            val syncResult = dataSyncService.syncDataToConfig()
+            if (syncResult.configResetList.isNotEmpty()) {
+                _message.value = "已创建节点组合「$cleanName」，涉及的【${syncResult.configResetList.joinToString("、")}】已自动重置为直连 (direct)"
+            } else {
+                _message.value = "已创建节点组合「$cleanName」"
+            }
             onResult(true, "创建成功")
         }
     }
@@ -620,26 +626,22 @@ class NodesViewModel(
                 )
             }
 
-            if (nameChanged) {
-                val resetList = configRepository.resetOutboundIfUsed(setOf(existingGroup.name))
-                if (resetList.isNotEmpty()) {
-                    _message.value = "由于组合更名，原引用的【${resetList.joinToString("、")}】已重置为直连"
-                }
+            val syncResult = dataSyncService.syncDataToConfig()
+            if (syncResult.configResetList.isNotEmpty()) {
+                _message.value = "已更新节点组合「$cleanName」，涉及的【${syncResult.configResetList.joinToString("、")}】已自动重置为直连 (direct)"
+            } else {
+                _message.value = "已更新节点组合「$cleanName」"
             }
-
-            syncExportWithGroups()
-            _message.value = "已更新节点组合「$cleanName」"
             onResult(true, "保存成功")
         }
     }
 
     fun deleteNodeGroup(group: NodeGroup) {
         viewModelScope.launch {
-            val resetList = configRepository.resetOutboundIfUsed(setOf(group.name))
             nodeGroupRepository.deleteGroup(group)
-            syncExportWithGroups()
-            if (resetList.isNotEmpty()) {
-                _message.value = "已删除组合「${group.name}」，涉及的【${resetList.joinToString("、")}】已自动重置为直连 (direct)"
+            val syncResult = dataSyncService.syncDataToConfig()
+            if (syncResult.configResetList.isNotEmpty()) {
+                _message.value = "已删除组合「${group.name}」，涉及的【${syncResult.configResetList.joinToString("、")}】已自动重置为直连 (direct)"
             } else {
                 _message.value = "已删除组合「${group.name}」"
             }
@@ -649,7 +651,10 @@ class NodesViewModel(
     fun toggleGroupEnabled(groupId: String, enabled: Boolean) {
         viewModelScope.launch {
             nodeGroupRepository.setGroupEnabled(groupId, enabled)
-            syncExportWithGroups()
+            val syncResult = dataSyncService.syncDataToConfig()
+            if (syncResult.configResetList.isNotEmpty()) {
+                _message.value = "已${if (enabled) "启用" else "禁用"}组合，涉及的【${syncResult.configResetList.joinToString("、")}】已自动重置为直连 (direct)"
+            }
         }
     }
 
@@ -683,7 +688,8 @@ class NodesViewModel(
                     app.configRepository,
                     app.configExporter,
                     app.configServer,
-                    app.subscriptionRepository
+                    app.subscriptionRepository,
+                    app.dataSyncService
                 ) as T
             }
         }
